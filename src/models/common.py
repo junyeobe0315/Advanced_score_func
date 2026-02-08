@@ -8,11 +8,25 @@ import torch.nn.functional as F
 
 
 def sigma_embedding(sigma: torch.Tensor, dim: int) -> torch.Tensor:
+    """Create sinusoidal embedding for continuous noise level ``sigma``.
+
+    Args:
+        sigma: Noise-level tensor with shape ``[B]`` or ``[B, 1]``.
+        dim: Output embedding dimension.
+
+    Returns:
+        Sinusoidal embedding tensor with shape ``[B, dim]``.
+
+    How it works:
+        Uses transformer-style sin/cos frequencies over log-spaced scales, as
+        commonly used for diffusion timestep/noise conditioning.
+    """
     if sigma.ndim == 2 and sigma.shape[1] == 1:
         sigma = sigma[:, 0]
     if sigma.ndim != 1:
         sigma = sigma.reshape(sigma.shape[0])
 
+    # Half dimensions for sin and half for cos frequencies.
     half = dim // 2
     device = sigma.device
     exponent = torch.arange(half, device=device, dtype=sigma.dtype)
@@ -27,7 +41,20 @@ def sigma_embedding(sigma: torch.Tensor, dim: int) -> torch.Tensor:
 
 
 class SigmaMLP(nn.Module):
+    """Project raw sigma embedding into feature-conditioned vector.
+
+    Notes:
+        This module follows the standard diffusion conditioning pattern used in
+        DDPM/EDM-style UNets: sinusoidal embedding followed by an MLP.
+    """
+
     def __init__(self, sigma_embed_dim: int, out_dim: int) -> None:
+        """Initialize sigma-conditioning MLP.
+
+        Args:
+            sigma_embed_dim: Dimension of sinusoidal sigma embedding.
+            out_dim: Output feature dimension used by downstream blocks.
+        """
         super().__init__()
         self.sigma_embed_dim = sigma_embed_dim
         self.net = nn.Sequential(
@@ -37,12 +64,35 @@ class SigmaMLP(nn.Module):
         )
 
     def forward(self, sigma: torch.Tensor) -> torch.Tensor:
+        """Map noise level tensor to learned conditioning vector.
+
+        Args:
+            sigma: Noise-level tensor with shape ``[B]`` or ``[B, 1]``.
+
+        Returns:
+            Conditioning tensor with shape ``[B, out_dim]``.
+        """
         emb = sigma_embedding(sigma, self.sigma_embed_dim)
         return self.net(emb)
 
 
 class ResBlock2D(nn.Module):
+    """Residual block with sigma conditioning for 2D feature maps.
+
+    Notes:
+        This block is adapted from DDPM-style ResNet blocks (Ho et al., 2020)
+        with GroupNorm + SiLU + residual skip and additive time/noise embedding.
+    """
+
     def __init__(self, in_ch: int, out_ch: int, temb_ch: int, dropout: float = 0.0) -> None:
+        """Initialize residual block.
+
+        Args:
+            in_ch: Input channel count.
+            out_ch: Output channel count.
+            temb_ch: Sigma/time embedding channel count.
+            dropout: Dropout probability in second conv path.
+        """
         super().__init__()
         groups1 = min(32, in_ch)
         groups2 = min(32, out_ch)
@@ -57,14 +107,40 @@ class ResBlock2D(nn.Module):
         self.skip = nn.Conv2d(in_ch, out_ch, kernel_size=1) if in_ch != out_ch else nn.Identity()
 
     def forward(self, x: torch.Tensor, temb: torch.Tensor) -> torch.Tensor:
+        """Apply residual transform conditioned by sigma embedding.
+
+        Args:
+            x: Feature map tensor ``[B, C, H, W]``.
+            temb: Conditioning vector ``[B, temb_ch]``.
+
+        Returns:
+            Updated feature map tensor ``[B, out_ch, H, W]``.
+
+        How it works:
+            The block applies two normalized conv layers; sigma embedding is
+            projected and added after first conv, then residual skip is added.
+        """
         h = self.conv1(F.silu(self.norm1(x)))
+        # Broadcast projected sigma embedding over spatial dimensions.
         h = h + self.temb_proj(F.silu(temb))[:, :, None, None]
         h = self.conv2(self.dropout(F.silu(self.norm2(h))))
         return h + self.skip(x)
 
 
 class SelfAttention2D(nn.Module):
+    """Single-head self-attention over spatial positions.
+
+    Notes:
+        This follows attention blocks used in diffusion UNets (DDPM and
+        subsequent score-model literature) for global spatial interactions.
+    """
+
     def __init__(self, channels: int) -> None:
+        """Initialize 2D attention block.
+
+        Args:
+            channels: Number of feature channels.
+        """
         super().__init__()
         groups = min(32, channels)
         self.norm = nn.GroupNorm(groups, channels)
@@ -74,7 +150,20 @@ class SelfAttention2D(nn.Module):
         self.proj = nn.Conv1d(channels, channels, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply spatial self-attention with residual connection.
+
+        Args:
+            x: Feature map tensor ``[B, C, H, W]``.
+
+        Returns:
+            Attention-enhanced tensor with same shape as ``x``.
+
+        How it works:
+            Normalizes input, flattens spatial dimensions, computes Q/K/V
+            attention, projects output, then adds residual skip.
+        """
         b, c, h, w = x.shape
+        # Flatten spatial grid to sequence length HW.
         z = self.norm(x).reshape(b, c, h * w)
 
         q = self.q(z).transpose(1, 2)  # [B,HW,C]
@@ -88,25 +177,49 @@ class SelfAttention2D(nn.Module):
 
 
 class Downsample2D(nn.Module):
+    """Strided-convolution downsampling layer."""
+
     def __init__(self, ch: int) -> None:
+        """Initialize downsampling conv.
+
+        Args:
+            ch: Input/output channel count.
+        """
         super().__init__()
         self.conv = nn.Conv2d(ch, ch, kernel_size=3, stride=2, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Downsample feature map by factor 2 using strided convolution."""
         return self.conv(x)
 
 
 class Upsample2D(nn.Module):
+    """Nearest-neighbor upsampling followed by 3x3 convolution."""
+
     def __init__(self, ch: int) -> None:
+        """Initialize upsampling projection.
+
+        Args:
+            ch: Input/output channel count.
+        """
         super().__init__()
         self.conv = nn.Conv2d(ch, ch, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Upsample feature map by factor 2 and refine with convolution."""
         x = F.interpolate(x, scale_factor=2.0, mode="nearest")
         return self.conv(x)
 
 
 class UNetBackbone(nn.Module):
+    """Diffusion-style UNet backbone with sigma conditioning.
+
+    Notes:
+        Architecture is inspired by DDPM UNet (Ho et al., 2020) and modern
+        score-model variants (e.g., EDM-style noise conditioning). It supports
+        configurable channel multipliers, residual depth, and attention scales.
+    """
+
     def __init__(
         self,
         in_channels: int,
@@ -119,13 +232,29 @@ class UNetBackbone(nn.Module):
         sigma_embed_dim: int,
         dropout: float = 0.0,
     ) -> None:
+        """Initialize configurable UNet backbone.
+
+        Args:
+            in_channels: Input image channels.
+            out_channels: Output channels.
+            image_size: Input spatial size (assumed square).
+            base_channels: Base channel width.
+            channel_mults: Per-level channel multipliers.
+            num_res_blocks: Residual blocks per level.
+            attn_resolutions: Spatial resolutions where attention is enabled.
+            sigma_embed_dim: Sinusoidal sigma embedding dimension.
+            dropout: Dropout rate in residual blocks.
+        """
         super().__init__()
         self.image_size = int(image_size)
+        # Global sigma embedding projected for all residual blocks.
         self.sigma_mlp = SigmaMLP(sigma_embed_dim=sigma_embed_dim, out_dim=base_channels * 4)
 
         self.input_conv = nn.Conv2d(in_channels, base_channels, kernel_size=3, padding=1)
         ch = base_channels
+        # Tracks current spatial resolution while building hierarchy.
         cur_res = self.image_size
+        # Stores skip-channel widths for mirrored up path construction.
         hs_channels: list[int] = [ch]
 
         self.down: nn.ModuleList = nn.ModuleList()
@@ -180,6 +309,20 @@ class UNetBackbone(nn.Module):
         self.out_conv = nn.Conv2d(ch, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        """Run UNet forward pass with skip connections.
+
+        Args:
+            x: Input tensor ``[B, C, H, W]``.
+            sigma: Noise levels tensor ``[B]`` or ``[B,1]``.
+
+        Returns:
+            Output tensor ``[B, out_channels, H, W]``.
+
+        How it works:
+            Encodes input through down path while caching skips, processes
+            bottleneck blocks, then decodes with concatenated skip features.
+        """
+        # Shared conditioning vector reused in all residual blocks.
         temb = self.sigma_mlp(sigma)
         h = self.input_conv(x)
         hs: list[torch.Tensor] = [h]

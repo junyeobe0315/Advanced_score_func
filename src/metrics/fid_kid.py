@@ -14,12 +14,29 @@ except Exception:  # pragma: no cover
 
 @dataclass
 class FIDKIDResult:
+    """Container for FID/KID scalar outputs."""
+
+    # Frechet Inception Distance value.
     fid: float
+    # Kernel Inception Distance value.
     kid: float
 
 
 class FeatureExtractor:
+    """Feature extractor backend for FID/KID computation.
+
+    Notes:
+        Uses torchvision Inception-v3 features when available. Falls back to
+        pooled normalized pixel features to keep evaluation executable when
+        pretrained Inception is unavailable.
+    """
+
     def __init__(self, device: torch.device) -> None:
+        """Initialize feature extractor mode and model state.
+
+        Args:
+            device: Device on which feature model runs.
+        """
         self.device = device
         self._mode = "fallback"
         self.model = None
@@ -27,6 +44,7 @@ class FeatureExtractor:
         self._init_model()
 
     def _init_model(self) -> None:
+        """Initialize Inception-v3 or fallback feature projection."""
         try:
             from torchvision.models import inception_v3
             from torchvision.models import Inception_V3_Weights
@@ -44,6 +62,18 @@ class FeatureExtractor:
 
     @torch.no_grad()
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        """Extract feature vectors from image batch.
+
+        Args:
+            x: Input image tensor in [-1, 1] range.
+
+        Returns:
+            Feature tensor of shape ``[B, D]``.
+
+        How it works:
+            Converts grayscale to RGB when needed, then applies Inception
+            preprocessing or fallback pooling projection.
+        """
         x = x.to(self.device)
         if x.shape[1] == 1:
             x = x.repeat(1, 3, 1, 1)
@@ -64,6 +94,7 @@ class FeatureExtractor:
 
 
 def _to_numpy_cov(feats: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
+    """Compute mean and covariance from feature tensor."""
     arr = feats.detach().cpu().numpy()
     mu = np.mean(arr, axis=0)
     cov = np.cov(arr, rowvar=False)
@@ -71,6 +102,7 @@ def _to_numpy_cov(feats: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _frechet_distance(mu1: np.ndarray, cov1: np.ndarray, mu2: np.ndarray, cov2: np.ndarray) -> float:
+    """Compute Frechet distance between two Gaussian feature distributions."""
     if sqrtm is None:
         # diagonal fallback
         diag_term = np.sum(np.sqrt(np.clip(np.diag(cov1), 0, None) * np.clip(np.diag(cov2), 0, None)))
@@ -86,6 +118,7 @@ def _frechet_distance(mu1: np.ndarray, cov1: np.ndarray, mu2: np.ndarray, cov2: 
 
 
 def _polynomial_mmd(x: torch.Tensor, y: torch.Tensor) -> float:
+    """Compute polynomial-kernel MMD used as KID estimator."""
     # KID with polynomial kernel (degree=3)
     dim = x.shape[1]
     c = 1.0
@@ -104,6 +137,20 @@ def _polynomial_mmd(x: torch.Tensor, y: torch.Tensor) -> float:
 
 
 def compute_fid_kid(fake: torch.Tensor, real: torch.Tensor, device: torch.device) -> FIDKIDResult:
+    """Compute FID and KID between generated and real image tensors.
+
+    Args:
+        fake: Generated samples tensor.
+        real: Real reference samples tensor.
+        device: Device for feature extraction.
+
+    Returns:
+        ``FIDKIDResult`` dataclass with ``fid`` and ``kid`` values.
+
+    How it works:
+        Extracts features, computes Gaussian stats for FID, then computes
+        polynomial MMD on random subsets for KID.
+    """
     extractor = FeatureExtractor(device=device)
 
     with torch.no_grad():

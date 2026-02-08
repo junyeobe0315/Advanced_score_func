@@ -9,6 +9,11 @@ from src.utils.seed import seed_everything
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for training entrypoint.
+
+    Returns:
+        Parsed ``argparse.Namespace`` with config, seed, and overrides.
+    """
     p = argparse.ArgumentParser(description="Train score model variants")
     p.add_argument("--config", type=str, required=True)
     p.add_argument("--seed", type=int, default=None)
@@ -23,6 +28,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_overrides(items: list[str]) -> dict:
+    """Parse dotted-key override strings into dictionary.
+
+    Args:
+        items: List like ``['train.total_steps=1000', 'loss.lambda_sym=0.1']``.
+
+    Returns:
+        Mapping from dotted key to YAML-decoded value.
+
+    How it works:
+        Splits each token at first ``=`` and decodes RHS via ``yaml.safe_load``
+        so numbers/booleans/lists are parsed with correct types.
+    """
     out = {}
     for item in items:
         if "=" not in item:
@@ -33,6 +50,11 @@ def parse_overrides(items: list[str]) -> dict:
 
 
 def main() -> None:
+    """Run training CLI flow from config load to run directory output.
+
+    Returns:
+        None. Prints resolved run directory path to stdout.
+    """
     args = parse_args()
     cfg = load_config(args.config)
     ensure_required_sections(cfg)

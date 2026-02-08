@@ -12,6 +12,18 @@ from .score_unet import ScoreUNet
 
 
 def build_model(cfg: dict) -> nn.Module:
+    """Instantiate model object from resolved configuration.
+
+    Args:
+        cfg: Full experiment config dictionary.
+
+    Returns:
+        A torch ``nn.Module`` implementing one of baseline/reg/struct models.
+
+    How it works:
+        Selects implementation by dataset and model type, then forwards
+        architecture hyperparameters from config into constructor arguments.
+    """
     dataset_name = cfg["dataset"]["name"]
     model_cfg = cfg["model"]
     model_type = model_cfg["type"]
@@ -59,14 +71,32 @@ def score_fn_from_model(
     *,
     create_graph: bool = True,
 ) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
+    """Expose a score-function callable for all model variants.
+
+    Args:
+        model: Base model instance.
+        variant: Variant name. ``"struct"`` expects potential output.
+        create_graph: Whether gradient computation should keep graph for higher
+            order derivatives.
+
+    Returns:
+        Callable ``score_fn(x, sigma) -> score``.
+
+    How it works:
+        Baseline/reg variants already output score directly. Struct variant
+        outputs scalar potential ``phi`` and this wrapper returns ``grad_x phi``.
+    """
     if variant != "struct":
         return model
 
     def _score_fn(x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        """Compute score by differentiating potential output w.r.t input."""
+        # Input must require grad to compute spatial derivative of potential.
         x_req = x.requires_grad_(True)
         phi = model(x_req, sigma)
         if phi.ndim == 1:
             phi = phi[:, None]
+        # Score is gradient of scalar potential.
         grad = torch.autograd.grad(phi.sum(), x_req, create_graph=create_graph)[0]
         return grad
 

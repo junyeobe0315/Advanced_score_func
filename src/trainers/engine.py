@@ -22,6 +22,14 @@ from .train_step_struct import train_step_struct
 
 
 def resolve_device(cfg: dict) -> torch.device:
+    """Resolve runtime device from config and hardware availability.
+
+    Args:
+        cfg: Resolved config dictionary.
+
+    Returns:
+        ``torch.device`` selected from ``cpu``, ``cuda``, or auto detection.
+    """
     mode = str(cfg["compute"].get("device", "auto"))
     if mode == "cpu":
         return torch.device("cpu")
@@ -31,6 +39,15 @@ def resolve_device(cfg: dict) -> torch.device:
 
 
 def make_run_dir(cfg: dict, seed: int) -> Path:
+    """Construct run directory path for dataset/variant/seed triple.
+
+    Args:
+        cfg: Resolved config dictionary.
+        seed: Integer random seed.
+
+    Returns:
+        Run directory path.
+    """
     dataset = cfg["dataset"]["name"]
     variant = cfg["model"]["variant"]
     root = Path(cfg.get("project", {}).get("run_root", "runs"))
@@ -38,6 +55,7 @@ def make_run_dir(cfg: dict, seed: int) -> Path:
 
 
 def _step_dispatch(variant: str):
+    """Return variant-specific train-step function."""
     if variant == "baseline":
         return train_step_baseline
     if variant == "reg":
@@ -48,6 +66,19 @@ def _step_dispatch(variant: str):
 
 
 def train(cfg: dict, seed: int | None = None) -> Path:
+    """Execute full training loop and checkpoint logging.
+
+    Args:
+        cfg: Resolved training config.
+        seed: Optional explicit seed overriding config field.
+
+    Returns:
+        Path to completed run directory.
+
+    How it works:
+        Builds model/optimizer/loggers, iterates training steps, applies mixed
+        precision and grad accumulation, logs metrics, and saves checkpoints.
+    """
     if seed is not None:
         cfg["train"]["seed"] = int(seed)
     seed = int(cfg["train"]["seed"])
@@ -90,9 +121,11 @@ def train(cfg: dict, seed: int | None = None) -> Path:
     progress = tqdm(range(1, total_steps + 1), desc=f"train/{cfg['dataset']['name']}/{cfg['model']['variant']}")
 
     optimizer.zero_grad(set_to_none=True)
+    # Counts steps where parameter/gradient NaN or Inf appears.
     nan_count = 0
 
     for step in progress:
+        # Wall-clock step timer for throughput metrics.
         t0 = time.perf_counter()
         try:
             batch = next(data_iter)
@@ -109,6 +142,7 @@ def train(cfg: dict, seed: int | None = None) -> Path:
                 loss, loss_metrics = step_fn(model, x0, cfg)
             loss = loss / accum_steps
 
+        # Standard AMP-safe backward path.
         scaler.scale(loss).backward()
 
         if step % accum_steps == 0:
@@ -126,6 +160,7 @@ def train(cfg: dict, seed: int | None = None) -> Path:
         step_time_ms = (time.perf_counter() - t0) * 1000.0
         imgs_per_sec = float(x0.shape[0] / max(step_time_ms, 1e-6) * 1000.0)
 
+        # Unified scalar row consumed by CSV and TensorBoard loggers.
         row = {
             "step": step,
             "loss_total": loss_metrics["loss_total"],

@@ -6,6 +6,14 @@ import torch
 
 
 def grad_norm_stats(parameters) -> dict[str, float]:
+    """Aggregate gradient-norm summary statistics.
+
+    Args:
+        parameters: Iterable of model parameters.
+
+    Returns:
+        Dictionary with mean and max gradient norms.
+    """
     norms = []
     for p in parameters:
         if p.grad is not None:
@@ -21,10 +29,12 @@ def grad_norm_stats(parameters) -> dict[str, float]:
 
 
 def has_nan_or_inf(t: torch.Tensor) -> bool:
+    """Check whether tensor contains NaN or Inf values."""
     return not torch.isfinite(t).all().item()
 
 
 def model_has_nan_or_inf(model: torch.nn.Module) -> bool:
+    """Check model parameters/gradients for invalid numerical values."""
     for p in model.parameters():
         if p is None:
             continue
@@ -36,6 +46,17 @@ def model_has_nan_or_inf(model: torch.nn.Module) -> bool:
 
 
 def curvature_proxy(trajectory: list[torch.Tensor]) -> float:
+    """Compute simple trajectory curvature proxy from sample path.
+
+    Args:
+        trajectory: List of trajectory states from sampler.
+
+    Returns:
+        Scalar curvature proxy where larger means more turning/oscillation.
+
+    How it works:
+        Computes cosine dissimilarity between consecutive displacement vectors.
+    """
     if len(trajectory) < 3:
         return 0.0
     vals = []
@@ -53,6 +74,7 @@ def curvature_proxy(trajectory: list[torch.Tensor]) -> float:
 
 
 def safe_float(value: float) -> float:
+    """Convert non-finite float to NaN placeholder."""
     if not math.isfinite(value):
         return float("nan")
     return float(value)

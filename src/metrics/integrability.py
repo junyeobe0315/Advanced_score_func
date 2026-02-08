@@ -12,10 +12,12 @@ ScoreFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 
 def sigma_bin_edges(sigma_min: float, sigma_max: float, bins: int) -> np.ndarray:
+    """Create logarithmic sigma-bin edges."""
     return np.exp(np.linspace(np.log(sigma_min), np.log(sigma_max), bins + 1))
 
 
 def _bucket_index(sigmas: torch.Tensor, edges: np.ndarray) -> torch.Tensor:
+    """Assign each sigma value to logarithmic bin index."""
     edges_t = torch.tensor(edges, device=sigmas.device, dtype=sigmas.dtype)
     idx = torch.bucketize(sigmas, edges_t, right=True) - 1
     return idx.clamp(min=0, max=len(edges) - 2)
@@ -32,6 +34,27 @@ def integrability_by_sigma_bins(
     loop_delta: float,
     loop_sparse_ratio: float,
 ) -> list[dict[str, float]]:
+    """Compute integrability diagnostics grouped by sigma bins.
+
+    Args:
+        score_fn: Callable score function.
+        x: Noisy input batch.
+        sigma: Per-sample sigma tensor.
+        sigma_min: Minimum sigma for bins.
+        sigma_max: Maximum sigma for bins.
+        bins: Number of logarithmic bins.
+        reg_k: Probe count for symmetry estimator.
+        loop_delta: Loop side length for loop estimator.
+        loop_sparse_ratio: Active-coordinate ratio for loop directions.
+
+    Returns:
+        List of dictionaries, one per sigma bin, containing counts and
+        ``r_sym``/``r_loop`` values.
+
+    How it works:
+        Buckets samples by sigma, then runs regularizer estimators on each bin
+        subset independently to expose noise-level dependence.
+    """
     edges = sigma_bin_edges(sigma_min, sigma_max, bins)
     idx = _bucket_index(sigma, edges)
 
@@ -70,6 +93,16 @@ def integrability_by_sigma_bins(
 
 
 def exact_jacobian_asymmetry_2d(score_fn: ScoreFn, x: torch.Tensor, sigma: torch.Tensor) -> float:
+    """Compute exact Jacobian asymmetry in 2D by explicit derivatives.
+
+    Args:
+        score_fn: Callable score function.
+        x: 2D input batch with shape ``[B, 2]``.
+        sigma: Per-sample sigma tensor.
+
+    Returns:
+        Mean squared Frobenius norm of ``J - J^T`` across batch.
+    """
     if x.shape[-1] != 2:
         raise ValueError("exact_jacobian_asymmetry_2d expects shape [B,2]")
 
@@ -97,6 +130,23 @@ def path_variance(
     num_paths: int,
     num_segments: int,
 ) -> float:
+    """Estimate path-dependence variance of line integral diagnostics.
+
+    Args:
+        score_fn: Callable score function.
+        x_ref: Path start points batch.
+        x_tgt: Path end points batch.
+        sigma: Sigma tensor aligned with sample batch.
+        num_paths: Number of random piecewise-linear paths.
+        num_segments: Number of segments per random path.
+
+    Returns:
+        Mean variance of line integrals across random paths.
+
+    How it works:
+        Samples random interpolation knots between ``x_ref`` and ``x_tgt``,
+        approximates line integrals with midpoint rule, and reports variance.
+    """
     # Piecewise-linear random paths between x_ref and x_tgt.
     integrals = []
     for _ in range(num_paths):

@@ -6,6 +6,7 @@ from src.losses.dsm import dsm_loss, dsm_target
 
 
 def test_dsm_loss_zero_on_exact_target() -> None:
+    """DSM loss should be near zero when score equals analytic target."""
     b, d = 32, 4
     x0 = torch.randn(b, d)
     eps = torch.randn(b, d)
@@ -17,6 +18,7 @@ def test_dsm_loss_zero_on_exact_target() -> None:
 
 
 def test_dsm_loss_increases_when_perturbed() -> None:
+    """DSM loss should increase when prediction is perturbed away from target."""
     b, d = 32, 4
     x0 = torch.randn(b, d)
     eps = torch.randn(b, d)

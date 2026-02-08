@@ -8,11 +8,24 @@ import numpy as np
 
 
 def read_csv(path: Path):
+    """Read CSV file into list of row dictionaries."""
     with path.open("r", encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
 
 def summarize_runs(run_root: Path) -> tuple[list[dict], list[dict]]:
+    """Aggregate run-level evaluation CSV files into summary tables.
+
+    Args:
+        run_root: Root directory containing run outputs.
+
+    Returns:
+        Tuple ``(fid_table, integrability_table)`` with mean/std aggregates.
+
+    How it works:
+        Scans run directories, groups metrics by dataset/variant/settings, and
+        computes summary statistics across seeds.
+    """
     by_group = defaultdict(list)
     by_group_integrability = defaultdict(list)
 
@@ -21,7 +34,7 @@ def summarize_runs(run_root: Path) -> tuple[list[dict], list[dict]]:
         # runs/{dataset}/{variant}/seed{n}/eval/fid_vs_nfe.csv
         dataset = parts[-6]
         variant = parts[-5]
-        seed = parts[-4]
+        _seed = parts[-4]
 
         rows = read_csv(eval_file)
         for row in rows:
@@ -71,6 +84,7 @@ def summarize_runs(run_root: Path) -> tuple[list[dict], list[dict]]:
 
 
 def write_table(path: Path, rows: list[dict]) -> None:
+    """Write summary rows to CSV if rows are non-empty."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         return
@@ -81,6 +95,7 @@ def write_table(path: Path, rows: list[dict]) -> None:
 
 
 def main() -> None:
+    """Generate report CSV files from experiment run artifacts."""
     run_root = Path("runs")
     fid_table, integ_table = summarize_runs(run_root)
     write_table(Path("reports/fid_summary.csv"), fid_table)

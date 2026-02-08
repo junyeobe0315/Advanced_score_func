@@ -9,11 +9,22 @@ from src.utils.seed import seed_everything
 
 
 def _load_cfg(path: Path) -> dict:
+    """Load YAML file for test helper usage."""
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def _prepare_cfg(root: Path, name: str, run_root: Path) -> dict:
+    """Build short-run config for smoke testing.
+
+    Args:
+        root: Repository root.
+        name: Config filename under ``configs``.
+        run_root: Temporary run output directory.
+
+    Returns:
+        Mutated config with tiny training budget.
+    """
     from src.utils.config import load_config
 
     cfg = load_config(str(root / "configs" / name))
@@ -27,6 +38,7 @@ def _prepare_cfg(root: Path, name: str, run_root: Path) -> dict:
 
 
 def test_train_smoke_for_all_variants(tmp_path: Path) -> None:
+    """Smoke test tiny training runs for baseline/reg/struct variants."""
     repo_root = Path(__file__).resolve().parents[1]
     run_root = tmp_path / "runs"
 

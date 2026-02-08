@@ -6,7 +6,10 @@ from src.sampling import sample_euler, sample_heun
 
 
 def test_sampler_reproducibility_and_nfe() -> None:
+    """Euler sampler should be deterministic for fixed init and report NFE."""
+
     def score_fn(x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        """Linear contraction field for deterministic integration."""
         del sigma
         return -0.1 * x
 
@@ -36,7 +39,10 @@ def test_sampler_reproducibility_and_nfe() -> None:
 
 
 def test_heun_matches_euler_for_constant_field() -> None:
+    """Heun and Euler should match on constant slope vector fields."""
+
     def score_fn(x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        """Constant vector field independent of state and sigma."""
         del x, sigma
         return torch.ones(8, 2) * 0.25
 

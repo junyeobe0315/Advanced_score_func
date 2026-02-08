@@ -8,6 +8,18 @@ import torch
 
 
 def seed_everything(seed: int) -> None:
+    """Seed Python, NumPy, and PyTorch RNGs for reproducibility.
+
+    Args:
+        seed: Global integer seed.
+
+    Returns:
+        None.
+
+    How it works:
+        Sets random seeds across libraries, sets deterministic CuDNN mode, and
+        stores seed in ``PYTHONHASHSEED`` for hash-dependent determinism.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

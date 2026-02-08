@@ -8,6 +8,7 @@ from src.utils.seed import seed_everything
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for multi-seed sweep runner."""
     p = argparse.ArgumentParser(description="Simple multi-seed sweep runner")
     p.add_argument("--sweep", type=str, required=True)
     p.add_argument("--seeds", type=str, required=True, help="Comma-separated list, e.g. 0,1,2")
@@ -15,6 +16,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run sweep config across requested seeds.
+
+    Returns:
+        None. Prints each produced run directory path.
+
+    How it works:
+        Loads one sweep config and repeats training while updating seed.
+    """
     args = parse_args()
     cfg = load_config(args.sweep)
     ensure_required_sections(cfg)

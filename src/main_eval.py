@@ -24,6 +24,14 @@ from src.utils.checkpoint import latest_checkpoint, load_checkpoint
 
 
 def _read_cfg(run_dir: Path) -> dict:
+    """Load resolved run config from run directory.
+
+    Args:
+        run_dir: Run directory path.
+
+    Returns:
+        Parsed config dictionary from ``config_resolved.yaml``.
+    """
     path = run_dir / "config_resolved.yaml"
     if not path.exists():
         raise FileNotFoundError(f"missing config file: {path}")
@@ -32,10 +40,12 @@ def _read_cfg(run_dir: Path) -> dict:
 
 
 def _parse_nfe_list(raw: str) -> list[int]:
+    """Parse comma-separated NFE values from CLI string."""
     return [int(x.strip()) for x in raw.split(",") if x.strip()]
 
 
 def _sampler_fn(name: str):
+    """Return sampler function by name."""
     if name == "heun":
         return sample_heun
     if name == "euler":
@@ -44,6 +54,12 @@ def _sampler_fn(name: str):
 
 
 def _write_csv(path: Path, rows: list[dict]) -> None:
+    """Write list-of-dicts rows to CSV file.
+
+    Args:
+        path: Destination CSV file path.
+        rows: Row dictionaries with identical keys.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         return
@@ -65,6 +81,27 @@ def _generate_samples(
     device: torch.device,
     score_requires_grad: bool,
 ) -> tuple[torch.Tensor, dict]:
+    """Generate samples in mini-batches and aggregate dynamics stats.
+
+    Args:
+        sampler_name: Sampler identifier (euler/heun).
+        score_fn: Score callable.
+        shape_per_sample: Single sample shape excluding batch dimension.
+        total: Total number of samples to generate.
+        batch_size: Sampling batch size.
+        sigma_min: Minimum sigma.
+        sigma_max: Maximum sigma.
+        nfe: Number of function evaluations for each sample trajectory.
+        device: Sampling device.
+        score_requires_grad: Enable gradient path for structural score wrapper.
+
+    Returns:
+        Tuple ``(samples, agg_stats)`` where samples are on CPU.
+
+    How it works:
+        Repeatedly calls selected sampler in chunks, concatenates outputs, and
+        averages trajectory-length/curvature diagnostics across chunks.
+    """
     sampler = _sampler_fn(sampler_name)
     out = []
     traj_lens = []
@@ -99,6 +136,7 @@ def _generate_samples(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for evaluation entrypoint."""
     p = argparse.ArgumentParser(description="Evaluate trained runs")
     p.add_argument("--run_dir", type=str, required=True)
     p.add_argument("--checkpoint", type=str, default=None)
@@ -107,6 +145,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run evaluation pipeline for one training run.
+
+    Returns:
+        None. Writes CSV files under ``run_dir/eval`` and prints that path.
+
+    How it works:
+        Loads checkpoint/model, generates fake samples for NFE grid, computes
+        quality metrics, then computes sigma-binned integrability diagnostics.
+    """
     args = parse_args()
     run_dir = Path(args.run_dir).resolve()
     cfg = _read_cfg(run_dir)
@@ -126,6 +173,7 @@ def main() -> None:
     model.eval()
 
     variant = cfg["model"]["variant"]
+    # Sampling path uses no graph, metric path keeps graph for Jacobian probes.
     score_fn_sample = score_fn_from_model(model, variant, create_graph=False)
     score_fn_metric = score_fn_from_model(model, variant, create_graph=True)
     score_requires_grad = variant == "struct"
@@ -139,6 +187,7 @@ def main() -> None:
     sigma_min = float(loss_cfg["sigma_min"])
     sigma_max = float(loss_cfg["sigma_max"])
 
+    # Reference real samples for FID/KID and output shape definition.
     real = sample_real_data(cfg, num_samples=num_samples)
     shape_per_sample = tuple(real.shape[1:])
 
@@ -205,6 +254,7 @@ def main() -> None:
     )
 
     if cfg["dataset"]["name"] == "toy" and x.shape[-1] == 2:
+        # Exact Jacobian asymmetry is affordable in 2D toy setting.
         exact = exact_jacobian_asymmetry_2d(score_fn_metric, x[: min(256, x.shape[0])], sigma[: min(256, x.shape[0])])
         for row in integ_rows:
             row["exact_jacobian_asymmetry_2d"] = exact

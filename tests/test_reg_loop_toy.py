@@ -6,7 +6,10 @@ from src.losses.reg_loop import reg_loop_estimator
 
 
 def test_loop_regularizer_small_for_conservative_field() -> None:
+    """Loop regularizer should be small on conservative vector fields."""
+
     def score_fn(x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        """Identity field from quadratic potential."""
         del sigma
         return x
 
@@ -17,7 +20,10 @@ def test_loop_regularizer_small_for_conservative_field() -> None:
 
 
 def test_loop_regularizer_higher_for_rotational_field() -> None:
+    """Loop regularizer should be larger on rotational non-conservative fields."""
+
     def score_fn(x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        """Simple 2D rotational field with non-zero circulation."""
         del sigma
         return torch.stack([-x[:, 1], x[:, 0]], dim=1)
 

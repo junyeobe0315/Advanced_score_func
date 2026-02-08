@@ -7,6 +7,7 @@ from src.models.potential_mlp_toy import PotentialMLPToy
 
 
 def test_struct_score_has_symmetric_jacobian_in_toy() -> None:
+    """Score from potential model should have symmetric Jacobian in 2D."""
     model = PotentialMLPToy(dim=2, hidden_dim=32, depth=2, sigma_embed_dim=16)
     score_fn = score_fn_from_model(model, variant="struct", create_graph=True)
 
