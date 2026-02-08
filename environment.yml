@@ -4,17 +4,17 @@ channels:
   - nvidia
   - conda-forge
 dependencies:
-  - python=3.12
+  - python=3.11
   - pip
-  - pytorch
-  - torchvision
-  - pytorch-cuda=12.1
-  - numpy
-  - pyyaml
-  - tqdm
-  - matplotlib
-  - scipy
-  - tensorboard
+  - pytorch::pytorch
+  - pytorch::torchvision
+  - pytorch::pytorch-cuda=12.4
+  - conda-forge::numpy
+  - conda-forge::pyyaml
+  - conda-forge::tqdm
+  - conda-forge::matplotlib
+  - conda-forge::scipy
+  - conda-forge::tensorboard
   - pip:
       - pytest
       - rich
