@@ -1,0 +1,15 @@
+base_config: base.yaml
+experiment:
+  model_id: M4
+model:
+  variant: baseline
+  type: unet
+  hybrid:
+    high_type: unet
+    low_type: potential_unet
+    low_base_channels: 28
+loss:
+  alpha: 0.02
+  beta: 0.01
+  sigma_c: 1.00
+  mu2: 0.0

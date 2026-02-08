@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-for seed in 0 1 2; do
-  python -m src.main_train --config configs/imagenet128_baseline.yaml --seed "$seed"
-  python -m src.main_train --config configs/imagenet128_reg.yaml --seed "$seed"
-  python -m src.main_train --config configs/imagenet128_struct.yaml --seed "$seed"
-done
+models=(m0 m1 m2 m3 m4)
 
 for seed in 0 1 2; do
-  python -m src.main_eval --run_dir "runs/imagenet128/M0/seed${seed}" --nfe_list 10,20,50,100,200
-  python -m src.main_eval --run_dir "runs/imagenet128/M1/seed${seed}" --nfe_list 10,20,50,100,200
-  python -m src.main_eval --run_dir "runs/imagenet128/M2/seed${seed}" --nfe_list 10,20,50,100,200
+  for model in "${models[@]}"; do
+    python -m src.main_train --config "configs/imagenet128/${model}.yaml" --seed "$seed"
+  done
+done
+
+model_ids=(M0 M1 M2 M3 M4)
+for seed in 0 1 2; do
+  for model_id in "${model_ids[@]}"; do
+    python -m src.main_eval --run_dir "runs/imagenet128/${model_id}/seed${seed}" --nfe_list 10,20,50,100,200
+  done
 done

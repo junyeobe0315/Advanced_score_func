@@ -54,9 +54,25 @@ bash scripts/run_toy_all.sh
 bash scripts/run_mnist_all.sh
 bash scripts/run_cifar_smoke.sh
 bash scripts/run_cifar_main.sh
+bash scripts/run_imagenet128_all.sh
+bash scripts/run_imagenet256_all.sh
+bash scripts/run_imagenet512_all.sh
+bash scripts/run_lsun256_all.sh
+bash scripts/run_ffhq256_all.sh
 ```
 
 `run_cifar_smoke.sh` runs the 5 models with short steps for pipeline validation.
+
+## 5-Way Config Sets
+
+- Toy: `configs/toy/m0.yaml` ... `configs/toy/m4.yaml`
+- MNIST: `configs/mnist/m0.yaml` ... `configs/mnist/m4.yaml`
+- CIFAR-10: `configs/cifar10/m0.yaml` ... `configs/cifar10/m4.yaml`
+- ImageNet-128: `configs/imagenet128/m0.yaml` ... `configs/imagenet128/m4.yaml`
+- ImageNet-256: `configs/imagenet256/m0.yaml` ... `configs/imagenet256/m4.yaml`
+- ImageNet-512: `configs/imagenet512/m0.yaml` ... `configs/imagenet512/m4.yaml`
+- LSUN-256: `configs/lsun256/m0.yaml` ... `configs/lsun256/m4.yaml`
+- FFHQ-256: `configs/ffhq256/m0.yaml` ... `configs/ffhq256/m4.yaml`
 
 ## References (Paper + Code)
 

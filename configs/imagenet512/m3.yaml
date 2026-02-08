@@ -1,0 +1,11 @@
+base_config: base.yaml
+experiment:
+  model_id: M3
+model:
+  variant: baseline
+  type: unet
+loss:
+  lambda_sym: 0.0
+  mu_loop: 0.0
+  mu1: 0.02
+  mu2: 0.02

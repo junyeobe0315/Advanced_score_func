@@ -1,0 +1,33 @@
+base_config: ../base_imagenet512.yaml
+
+experiment:
+  name: integrability_5way
+  model_id: M0
+
+loss:
+  sigma0: 1.00
+  lambda0: 0.02
+  mu1: 0.02
+  mu2: 0.02
+  alpha: 0.02
+  beta: 0.01
+  sigma_c: 1.00
+  reg_sym_method: jvp_vjp
+  reg_sym_eps_fd: 1.0e-3
+  delta_set: [0.0008, 0.0015, 0.0030]
+  cycle_knn_k: 8
+  cycle_lengths: [3, 4, 5]
+  cycle_samples: 8
+  cycle_subset: 8
+  reg_freq: 8
+  reg_low_noise_only: true
+
+model:
+  hybrid:
+    high_type: unet
+    low_type: potential_unet
+    low_base_channels: 28
+
+eval:
+  use_torch_fidelity: true
+  enable_cycle_metrics: true
