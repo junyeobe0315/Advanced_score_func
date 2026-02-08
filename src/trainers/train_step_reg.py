@@ -26,9 +26,9 @@ def _should_apply_regularizer(step: int, cfg: dict, sigma: torch.Tensor) -> bool
     if step % max(freq, 1) != 0:
         return False
 
-    if bool(cfg["loss"].get("reg_low_noise_only", False)):
-        thr = float(cfg["loss"].get("reg_low_noise_threshold", 0.25))
-        return bool((sigma <= thr).float().mean().item() > 0.5)
+    if bool(cfg["loss"].get("reg_low_noise_only", True)):
+        thr = float(cfg["loss"].get("sigma0", cfg["loss"].get("reg_low_noise_threshold", 0.25)))
+        return bool((sigma <= thr).any().item())
     return True
 
 
@@ -61,6 +61,8 @@ def train_step_reg(
     lam = float(cfg["loss"].get("lambda_sym", 0.0))
     mu = float(cfg["loss"].get("mu_loop", 0.0))
     reg_k = int(cfg["loss"].get("reg_k", 1))
+    reg_method = str(cfg["loss"].get("reg_sym_method", "jvp_vjp"))
+    eps_fd = float(cfg["loss"].get("reg_sym_eps_fd", 1.0e-3))
     delta = float(cfg["loss"].get("loop_delta", 0.01))
     sparse_ratio = float(cfg["loss"].get("loop_sparse_ratio", 1.0))
 
@@ -78,18 +80,27 @@ def train_step_reg(
     # Initialize regularizer terms to zero for skipped steps.
     sym = torch.zeros((), device=x0.device)
     loop = torch.zeros((), device=x0.device)
+    lam_eff = lam
 
     if _should_apply_regularizer(step=step, cfg=cfg, sigma=sigma):
+        if bool(cfg["loss"].get("reg_low_noise_only", True)):
+            sigma0 = float(cfg["loss"].get("sigma0", cfg["loss"].get("reg_low_noise_threshold", 0.25)))
+            # Low-noise gate scales regularization by active low-noise ratio.
+            lam_eff = lam * float((sigma <= sigma0).float().mean().item())
+
         if lam > 0.0:
-            sym = reg_sym_estimator(model, x=x, sigma=sigma, K=reg_k)
+            sym = reg_sym_estimator(model, x=x, sigma=sigma, K=reg_k, method=reg_method, eps_fd=eps_fd)
         if mu > 0.0:
             loop = reg_loop_estimator(model, x=x, sigma=sigma, delta=delta, sparse_ratio=sparse_ratio)
 
-    total = dsm + lam * sym + mu * loop
+    total = dsm + lam_eff * sym + mu * loop
     metrics = {
         "loss_total": float(total.detach().item()),
         "loss_dsm": float(dsm.detach().item()),
         "loss_sym": float(sym.detach().item()),
         "loss_loop": float(loop.detach().item()),
+        "loss_loop_multi": float(loop.detach().item()),
+        "loss_cycle": 0.0,
+        "loss_match": 0.0,
     }
     return total, metrics

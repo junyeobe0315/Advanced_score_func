@@ -1,0 +1,3 @@
+base_config: ../cifar10/m3.yaml
+loss:
+  cycle_lengths: [3]

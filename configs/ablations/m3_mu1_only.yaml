@@ -1,0 +1,4 @@
+base_config: ../cifar10/m3.yaml
+loss:
+  mu1: 0.03
+  mu2: 0.0

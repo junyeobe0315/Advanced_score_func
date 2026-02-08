@@ -1,0 +1,3 @@
+base_config: ../cifar10/m3.yaml
+loss:
+  reg_low_noise_only: false

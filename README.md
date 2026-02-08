@@ -1,118 +1,84 @@
-# Integrability-Regularized vs Structurally Conservative Score Models
+# Jacobian-Free Nonlocal Integrability Benchmark (M0-M4)
 
-PyTorch-only implementation for comparing three score-model families:
-- `baseline`: standard score network
-- `reg`: score network with integrability regularizers (`R_sym`, `R_loop`)
-- `struct`: potential network with score defined as gradient of scalar potential
+PyTorch-only codebase for 5-way score-model comparison:
+- `M0`: DSM baseline score model
+- `M1`: Jacobian-asymmetry regularized score model (QCSBM-style)
+- `M2`: fully conservative model (`s = grad_x phi`)
+- `M3`: Jacobian-free nonlocal integrability regularization (multi-scale loops + graph cycles)
+- `M4`: hybrid low-noise hard-conservative model with boundary matching
 
 GitHub repository:
 - https://github.com/junyeobe0315/Advanced_score_func.git
 
 ## Environment
 
-Conda (recommended):
-
 ```bash
 conda env create -f environment.yml
 conda activate advance_score
 ```
 
-If your machine needs explicit CUDA wheels, install PyTorch separately first:
+If CUDA package resolution fails in conda, install PyTorch wheels first and then install dependencies:
 
 ```bash
 pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision
 pip install -r requirements.txt
 ```
 
-## Train
+## Training / Evaluation CLI
 
 ```bash
-python -m src.main_train --config configs/cifar_reg.yaml --seed 0
+python -m src.main_train --config configs/cifar10/m3.yaml --seed 0
+python -m src.main_eval --run_dir runs/cifar10/M3/seed0 --nfe_list 10,20,50,100,200
+python -m src.main_sweep --sweep configs/toy/m1.yaml --seeds 0,1,2
 ```
 
-Outputs are written under:
+Outputs are saved under:
 
 ```text
-runs/{dataset}/{variant}/seed{n}/
+runs/{dataset}/{model_id}/seed{n}/
 ```
 
-## Eval
-
-```bash
-python -m src.main_eval --run_dir runs/cifar10/reg/seed0 --nfe_list 10,20,50,100,200
-```
-
-This writes:
+Artifacts per run:
+- `config_resolved.yaml`
+- `metrics.csv`
+- `tb/`
+- `checkpoints/step_*.pt`
 - `eval/fid_vs_nfe.csv`
 - `eval/integrability_vs_sigma.csv`
+- `eval/compute_summary.json`
 
-## Sweep
+## Quick Run Scripts
 
 ```bash
-python -m src.main_sweep --sweep configs/ablations/reg_both.yaml --seeds 0,1,2
+bash scripts/run_toy_all.sh
+bash scripts/run_mnist_all.sh
+bash scripts/run_cifar_smoke.sh
+bash scripts/run_cifar_main.sh
 ```
 
-## Notes
+`run_cifar_smoke.sh` runs the 5 models with short steps for pipeline validation.
 
-- `R_sym` uses randomized probing with `JVP` + `VJP`.
-- `R_loop` uses small rectangle-loop approximation.
-- Integrability metrics are logged by sigma bins (log-scale).
-- CIFAR runs support 2-tier execution (`smoke` and `main`) using dedicated scripts.
+## References (Paper + Code)
 
-## Added Datasets
+### Diffusion / Score Frameworks
+- EDM (Karras et al., 2022) code: https://github.com/NVlabs/edm
+- Score SDE (Song et al., 2021) code: https://github.com/yang-song/score_sde_pytorch
+- Score SDE legacy repo: https://github.com/yang-song/score_sde
 
-### ImageNet
-- Supported configs:
-  - `configs/imagenet128_baseline.yaml`
-  - `configs/imagenet128_reg.yaml`
-  - `configs/imagenet128_struct.yaml`
-  - `configs/imagenet256_baseline.yaml`
-  - `configs/imagenet256_reg.yaml`
-  - `configs/imagenet256_struct.yaml`
-  - `configs/imagenet512_baseline.yaml`
-  - `configs/imagenet512_reg.yaml`
-  - `configs/imagenet512_struct.yaml`
-- Run directory keys:
-  - ImageNet-128 -> `runs/imagenet128/...`
-  - ImageNet-256 -> `runs/imagenet256/...`
-  - ImageNet-512 -> `runs/imagenet512/...`
-- Expected directory layout:
-```text
-data/
-  imagenet/
-    train/
-      class_x/*.jpg
-    val/
-      class_x/*.jpg
-```
+### Prior-inspired Baselines
+- QCSBM project: https://chen-hao-chao.github.io/qcsbm/
+- QCSBM code: https://github.com/chen-hao-chao/qcsbm
+- Reduce-Reuse-Recycle project: https://energy-based-model.github.io/reduce-reuse-recycle/
+- Reduce-Reuse-Recycle code: https://github.com/yilundu/reduce_reuse_recycle
 
-### LSUN
-- Supported configs:
-  - `configs/lsun256_baseline.yaml`
-  - `configs/lsun256_reg.yaml`
-  - `configs/lsun256_struct.yaml`
-- Run directory key: `runs/lsun256/...`
-- Default class setup is bedroom (`bedroom_train`, `bedroom_val`), configurable under `dataset.lsun.*`.
+### Related Energy/Composition
+- Thornton et al. (AISTATS 2025): https://proceedings.mlr.press/v258/thornton25a.html
+- arXiv: https://arxiv.org/abs/2502.12786
 
-### FFHQ
-- Supported configs:
-  - `configs/ffhq256_baseline.yaml`
-  - `configs/ffhq256_reg.yaml`
-  - `configs/ffhq256_struct.yaml`
-- Run directory key: `runs/ffhq256/...`
-- Expected directory layout:
-```text
-data/
-  ffhq/
-    train/
-      class_or_dummy/*.png
-    val/
-      class_or_dummy/*.png
-```
+### Evaluation Tooling
+- torch-fidelity: https://github.com/toshas/torch-fidelity
+- clean-fid: https://github.com/GaParmar/clean-fid
+- pytorch-fid: https://github.com/mseitzer/pytorch-fid
 
-## New Run Scripts
-- `scripts/run_imagenet128_all.sh`
-- `scripts/run_imagenet256_all.sh`
-- `scripts/run_imagenet512_all.sh`
-- `scripts/run_lsun256_all.sh`
-- `scripts/run_ffhq256_all.sh`
+### Sampling Utilities
+- k-diffusion: https://github.com/crowsonkb/k-diffusion

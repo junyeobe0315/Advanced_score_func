@@ -36,5 +36,8 @@ def train_step_baseline(model: torch.nn.Module, x0: torch.Tensor, cfg: dict) -> 
         "loss_dsm": float(dsm.detach().item()),
         "loss_sym": 0.0,
         "loss_loop": 0.0,
+        "loss_loop_multi": 0.0,
+        "loss_cycle": 0.0,
+        "loss_match": 0.0,
     }
     return dsm, metrics

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -186,3 +188,64 @@ def apply_overrides(cfg: dict[str, Any], overrides: dict[str, Any]) -> dict[str,
     for key, value in overrides.items():
         set_by_dotted_path(out, key, value)
     return out
+
+
+def resolve_model_id(cfg: dict[str, Any]) -> str:
+    """Resolve canonical 5-way model id (M0..M4) with backward compatibility.
+
+    Args:
+        cfg: Resolved experiment config dictionary.
+
+    Returns:
+        Canonical model id string in ``{"M0","M1","M2","M3","M4"}``.
+
+    How it works:
+        Prefers ``experiment.model_id``. If absent, maps legacy
+        ``model.variant`` names to compatible ids:
+        ``baseline->M0``, ``reg->M1``, ``struct->M2``.
+    """
+    exp_cfg = cfg.get("experiment", {})
+    model_id = exp_cfg.get("model_id")
+    if model_id is not None:
+        model_id = str(model_id).upper()
+        if model_id in {"M0", "M1", "M2", "M3", "M4"}:
+            return model_id
+        raise ConfigError(f"invalid experiment.model_id: {model_id}")
+
+    variant = str(cfg.get("model", {}).get("variant", "")).lower()
+    legacy_map = {
+        "baseline": "M0",
+        "reg": "M1",
+        "struct": "M2",
+    }
+    if variant in legacy_map:
+        return legacy_map[variant]
+    raise ConfigError("missing experiment.model_id and unsupported legacy model.variant")
+
+
+def ensure_experiment_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Inject experiment section defaults while keeping backward compatibility.
+
+    Args:
+        cfg: Resolved config dictionary.
+
+    Returns:
+        Mutated config with normalized ``experiment`` section.
+    """
+    cfg.setdefault("experiment", {})
+    cfg["experiment"]["model_id"] = resolve_model_id(cfg)
+    cfg["experiment"].setdefault("name", "integrability_5way")
+    return cfg
+
+
+def config_hash(cfg: dict[str, Any]) -> str:
+    """Compute deterministic hash for resolved configuration dictionary.
+
+    Args:
+        cfg: Resolved config dictionary.
+
+    Returns:
+        First 12 hex chars of SHA-256 over sorted JSON representation.
+    """
+    canonical = json.dumps(cfg, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]

@@ -23,64 +23,75 @@ def summarize_runs(run_root: Path) -> tuple[list[dict], list[dict]]:
         Tuple ``(fid_table, integrability_table)`` with mean/std aggregates.
 
     How it works:
-        Scans run directories, groups metrics by dataset/variant/settings, and
+        Scans run directories, groups metrics by dataset/model id/settings, and
         computes summary statistics across seeds.
     """
-    by_group = defaultdict(list)
+    by_group_fid = defaultdict(list)
     by_group_integrability = defaultdict(list)
 
     for eval_file in run_root.glob("*/**/seed*/eval/fid_vs_nfe.csv"):
-        parts = eval_file.parts
-        # runs/{dataset}/{variant}/seed{n}/eval/fid_vs_nfe.csv
-        dataset = parts[-6]
-        variant = parts[-5]
-        _seed = parts[-4]
+        # runs/{dataset}/{model_id}/seed{n}/eval/fid_vs_nfe.csv
+        rel = eval_file.relative_to(run_root)
+        dataset = rel.parts[0]
+        model_id = rel.parts[1]
 
         rows = read_csv(eval_file)
         for row in rows:
-            key = (dataset, variant, row["sampler"], row["nfe"])
-            by_group[key].append(float(row["fid"]))
+            key = (dataset, model_id, row.get("sampler", "heun"), row.get("nfe", "0"))
+            fid = row.get("fid", "nan")
+            if fid != "" and fid != "nan":
+                by_group_fid[key].append(float(fid))
 
         integ_path = eval_file.parent / "integrability_vs_sigma.csv"
         if integ_path.exists():
-            irows = read_csv(integ_path)
-            for row in irows:
-                key = (dataset, variant, row["bin"])
-                if row.get("r_sym") and row["r_sym"] != "nan":
-                    by_group_integrability[key].append((float(row["r_sym"]), float(row["r_loop"])))
+            for row in read_csv(integ_path):
+                name = str(row.get("metric_name", ""))
+                value = row.get("value", "nan")
+                if not name or value in {"", "nan"}:
+                    continue
+                key = (
+                    dataset,
+                    model_id,
+                    row.get("bin", "-1"),
+                    name,
+                    row.get("scale_delta", ""),
+                    row.get("cycle_len", ""),
+                )
+                by_group_integrability[key].append(float(value))
 
     fid_table = []
-    for (dataset, variant, sampler, nfe), vals in sorted(by_group.items()):
+    for (dataset, model_id, sampler, nfe), values in sorted(by_group_fid.items()):
         fid_table.append(
             {
                 "dataset": dataset,
-                "variant": variant,
+                "model_id": model_id,
                 "sampler": sampler,
                 "nfe": int(nfe),
-                "fid_mean": float(np.mean(vals)),
-                "fid_std": float(np.std(vals)),
-                "num_seeds": len(vals),
+                "fid_mean": float(np.mean(values)),
+                "fid_std": float(np.std(values)),
+                "num_seeds": len(values),
             }
         )
 
-    integ_table = []
-    for (dataset, variant, b), vals in sorted(by_group_integrability.items()):
-        sym = [v[0] for v in vals]
-        loop = [v[1] for v in vals]
-        integ_table.append(
+    integrability_table = []
+    for (dataset, model_id, bin_id, metric_name, scale_delta, cycle_len), values in sorted(
+        by_group_integrability.items()
+    ):
+        integrability_table.append(
             {
                 "dataset": dataset,
-                "variant": variant,
-                "sigma_bin": int(b),
-                "r_sym_mean": float(np.mean(sym)),
-                "r_sym_std": float(np.std(sym)),
-                "r_loop_mean": float(np.mean(loop)),
-                "r_loop_std": float(np.std(loop)),
-                "num_points": len(vals),
+                "model_id": model_id,
+                "sigma_bin": int(bin_id),
+                "metric_name": metric_name,
+                "scale_delta": scale_delta,
+                "cycle_len": cycle_len,
+                "value_mean": float(np.mean(values)),
+                "value_std": float(np.std(values)),
+                "num_points": len(values),
             }
         )
 
-    return fid_table, integ_table
+    return fid_table, integrability_table
 
 
 def write_table(path: Path, rows: list[dict]) -> None:

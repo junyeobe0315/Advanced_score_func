@@ -2,30 +2,9 @@ from __future__ import annotations
 
 import torch
 
+from src.models.potential_net import score_from_potential
+
 from .common import compute_dsm_for_score
-
-
-def _score_from_potential(model: torch.nn.Module, x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
-    """Convert potential network output into score via input gradient.
-
-    Args:
-        model: Potential model returning ``phi(x, sigma)``.
-        x: Noisy input tensor.
-        sigma: Per-sample sigma tensor.
-
-    Returns:
-        Score tensor with same shape as ``x``.
-
-    How it works:
-        Enables input gradients, evaluates scalar potential, then computes
-        ``grad_x phi`` with ``torch.autograd.grad``.
-    """
-    x_req = x.requires_grad_(True)
-    phi = model(x_req, sigma)
-    if phi.ndim == 1:
-        phi = phi[:, None]
-    score = torch.autograd.grad(phi.sum(), x_req, create_graph=True)[0]
-    return score
 
 
 def train_step_struct(model: torch.nn.Module, x0: torch.Tensor, cfg: dict) -> tuple[torch.Tensor, dict[str, float]]:
@@ -48,7 +27,7 @@ def train_step_struct(model: torch.nn.Module, x0: torch.Tensor, cfg: dict) -> tu
     weight_mode = str(cfg["loss"].get("weight_mode", "sigma2"))
 
     dsm, _ = compute_dsm_for_score(
-        score_fn=lambda x, s: _score_from_potential(model, x, s),
+        score_fn=lambda x, s: score_from_potential(model, x, s, create_graph=True),
         x0=x0,
         sigma_min=sigma_min,
         sigma_max=sigma_max,
@@ -60,5 +39,8 @@ def train_step_struct(model: torch.nn.Module, x0: torch.Tensor, cfg: dict) -> tu
         "loss_dsm": float(dsm.detach().item()),
         "loss_sym": 0.0,
         "loss_loop": 0.0,
+        "loss_loop_multi": 0.0,
+        "loss_cycle": 0.0,
+        "loss_match": 0.0,
     }
     return dsm, metrics

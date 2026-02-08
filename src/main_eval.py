@@ -2,25 +2,22 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import time
 from pathlib import Path
 
 import torch
 import yaml
 
 from src.data import make_loader, sample_real_data, unpack_batch
-from src.metrics import (
-    compute_fid_kid,
-    compute_inception_score,
-    curvature_proxy,
-    exact_jacobian_asymmetry_2d,
-    integrability_by_sigma_bins,
-    path_variance,
-)
+from src.eval import compute_quality_metrics, generate_samples_batched, integrability_records_by_sigma
+from src.metrics import exact_jacobian_asymmetry_2d, path_variance
 from src.models import build_model, score_fn_from_model
-from src.sampling import sample_euler, sample_heun
 from src.sampling.sigma_schedule import sample_log_uniform_sigmas
 from src.trainers.engine import resolve_device
 from src.utils.checkpoint import latest_checkpoint, load_checkpoint
+from src.utils.config import ensure_experiment_defaults, resolve_model_id
+from src.utils.feature_encoder import build_feature_encoder
 
 
 def _read_cfg(run_dir: Path) -> dict:
@@ -36,21 +33,23 @@ def _read_cfg(run_dir: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"missing config file: {path}")
     with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    return ensure_experiment_defaults(cfg)
 
 
-def _parse_nfe_list(raw: str) -> list[int]:
-    """Parse comma-separated NFE values from CLI string."""
-    return [int(x.strip()) for x in raw.split(",") if x.strip()]
+def _parse_nfe_list(raw: str | None, fallback: list[int]) -> list[int]:
+    """Parse comma-separated NFE values from CLI string.
 
+    Args:
+        raw: Raw comma-separated string. ``None`` means use fallback.
+        fallback: Default list when ``raw`` is empty.
 
-def _sampler_fn(name: str):
-    """Return sampler function by name."""
-    if name == "heun":
-        return sample_heun
-    if name == "euler":
-        return sample_euler
-    raise ValueError(f"unknown sampler: {name}")
+    Returns:
+        Parsed integer NFE list.
+    """
+    if raw is None or str(raw).strip() == "":
+        return fallback
+    return [int(x.strip()) for x in str(raw).split(",") if x.strip()]
 
 
 def _write_csv(path: Path, rows: list[dict]) -> None:
@@ -64,75 +63,56 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         return
     with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        w.writeheader()
-        w.writerows(rows)
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
-def _generate_samples(
-    sampler_name: str,
-    score_fn,
-    shape_per_sample: tuple[int, ...],
-    total: int,
-    batch_size: int,
-    sigma_min: float,
-    sigma_max: float,
-    nfe: int,
-    device: torch.device,
-    score_requires_grad: bool,
-) -> tuple[torch.Tensor, dict]:
-    """Generate samples in mini-batches and aggregate dynamics stats.
+def _read_metrics_csv(path: Path) -> list[dict[str, str]]:
+    """Read training metrics CSV rows if file exists."""
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _compute_summary_from_train_metrics(rows: list[dict[str, str]]) -> dict[str, float]:
+    """Aggregate compute-related statistics from training metrics rows.
 
     Args:
-        sampler_name: Sampler identifier (euler/heun).
-        score_fn: Score callable.
-        shape_per_sample: Single sample shape excluding batch dimension.
-        total: Total number of samples to generate.
-        batch_size: Sampling batch size.
-        sigma_min: Minimum sigma.
-        sigma_max: Maximum sigma.
-        nfe: Number of function evaluations for each sample trajectory.
-        device: Sampling device.
-        score_requires_grad: Enable gradient path for structural score wrapper.
+        rows: Parsed rows from ``metrics.csv``.
 
     Returns:
-        Tuple ``(samples, agg_stats)`` where samples are on CPU.
-
-    How it works:
-        Repeatedly calls selected sampler in chunks, concatenates outputs, and
-        averages trajectory-length/curvature diagnostics across chunks.
+        Summary dictionary with train throughput, step time, VRAM, and
+        approximate GPU-hours.
     """
-    sampler = _sampler_fn(sampler_name)
-    out = []
-    traj_lens = []
-    curvatures = []
+    if not rows:
+        return {
+            "train_step_time_ms_mean": float("nan"),
+            "train_imgs_per_sec_mean": float("nan"),
+            "peak_vram_mb": float("nan"),
+            "approx_gpu_hours": float("nan"),
+        }
 
-    produced = 0
-    while produced < total:
-        b = min(batch_size, total - produced)
-        shape = (b, *shape_per_sample)
-        samples, stats = sampler(
-            score_fn=score_fn,
-            shape=shape,
-            sigma_min=sigma_min,
-            sigma_max=sigma_max,
-            nfe=nfe,
-            device=device,
-            score_requires_grad=score_requires_grad,
-            return_trajectory=(produced == 0),
-        )
-        out.append(samples.detach().cpu())
-        traj_lens.append(stats["trajectory_length_mean"])
-        if "trajectory" in stats:
-            curvatures.append(curvature_proxy(stats["trajectory"]))
-        produced += b
+    step_time = [float(r.get("step_time_ms", "nan")) for r in rows]
+    ips = [float(r.get("imgs_per_sec", "nan")) for r in rows]
+    vram = [float(r.get("vram_peak_mb", "nan")) for r in rows]
 
-    merged = torch.cat(out, dim=0)
-    agg = {
-        "trajectory_length_mean": float(sum(traj_lens) / max(len(traj_lens), 1)),
-        "curvature_proxy": float(sum(curvatures) / max(len(curvatures), 1)) if curvatures else 0.0,
+    finite_step_time = [v for v in step_time if torch.isfinite(torch.tensor(v)).item()]
+    finite_ips = [v for v in ips if torch.isfinite(torch.tensor(v)).item()]
+    finite_vram = [v for v in vram if torch.isfinite(torch.tensor(v)).item()]
+
+    step_mean = float(sum(finite_step_time) / max(1, len(finite_step_time)))
+    ips_mean = float(sum(finite_ips) / max(1, len(finite_ips)))
+    vram_peak = float(max(finite_vram)) if finite_vram else float("nan")
+    gpu_hours = float((step_mean * len(rows)) / 1000.0 / 3600.0)
+
+    return {
+        "train_step_time_ms_mean": step_mean,
+        "train_imgs_per_sec_mean": ips_mean,
+        "peak_vram_mb": vram_peak,
+        "approx_gpu_hours": gpu_hours,
     }
-    return merged, agg
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,19 +120,20 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate trained runs")
     p.add_argument("--run_dir", type=str, required=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument("--nfe_list", type=str, default="10,20,50,100,200")
+    p.add_argument("--nfe_list", type=str, default=None)
     return p.parse_args()
 
 
 def main() -> None:
-    """Run evaluation pipeline for one training run.
+    """Run full evaluation pipeline for one training run.
 
     Returns:
-        None. Writes CSV files under ``run_dir/eval`` and prints that path.
+        None. Writes CSV/JSON files under ``run_dir/eval`` and prints that path.
 
     How it works:
-        Loads checkpoint/model, generates fake samples for NFE grid, computes
-        quality metrics, then computes sigma-binned integrability diagnostics.
+        Loads checkpoint/model, generates samples for each sampler/NFE pair,
+        computes quality metrics, then computes sigma-binned integrability
+        diagnostics with long-format schema.
     """
     args = parse_args()
     run_dir = Path(args.run_dir).resolve()
@@ -172,57 +153,76 @@ def main() -> None:
 
     model.eval()
 
-    variant = cfg["model"]["variant"]
-    # Sampling path uses no graph, metric path keeps graph for Jacobian probes.
-    score_fn_sample = score_fn_from_model(model, variant, create_graph=False)
-    score_fn_metric = score_fn_from_model(model, variant, create_graph=True)
-    score_requires_grad = variant == "struct"
+    model_id = resolve_model_id(cfg)
+    score_fn_sample = score_fn_from_model(model, model_id, create_graph=False)
+    score_fn_metric = score_fn_from_model(model, model_id, create_graph=True)
+    score_requires_grad = model_id in {"M2", "M4"}
 
-    nfe_list = _parse_nfe_list(args.nfe_list)
     eval_cfg = cfg["eval"]
     loss_cfg = cfg["loss"]
+    sampler_cfg = cfg.get("sampler", {})
+
+    default_nfe = [int(v) for v in sampler_cfg.get("nfe_list", [10, 20, 50, 100, 200])]
+    nfe_list = _parse_nfe_list(args.nfe_list, fallback=default_nfe)
 
     num_samples = int(eval_cfg.get("num_fid_samples", 10000))
     eval_batch = int(eval_cfg.get("batch_size", 64))
     sigma_min = float(loss_cfg["sigma_min"])
     sigma_max = float(loss_cfg["sigma_max"])
 
-    # Reference real samples for FID/KID and output shape definition.
+    # Reference real samples for FID/KID and output-shape definition.
     real = sample_real_data(cfg, num_samples=num_samples)
     shape_per_sample = tuple(real.shape[1:])
 
+    main_sampler = str(sampler_cfg.get("main", "heun"))
+    compare_samplers = [str(s) for s in sampler_cfg.get("compare", [])]
+    sampler_list = []
+    for name in [main_sampler, *compare_samplers]:
+        if name not in sampler_list:
+            sampler_list.append(name)
+
     fid_rows = []
-    main_sampler = cfg["sampler"].get("main", "heun")
-    for nfe in nfe_list:
-        fake, dynamics = _generate_samples(
-            sampler_name=main_sampler,
-            score_fn=score_fn_sample,
-            shape_per_sample=shape_per_sample,
-            total=num_samples,
-            batch_size=eval_batch,
-            sigma_min=sigma_min,
-            sigma_max=sigma_max,
-            nfe=nfe,
-            device=device,
-            score_requires_grad=score_requires_grad,
-        )
+    want_is = str(cfg["dataset"]["name"]).lower().startswith("cifar")
+    for sampler_name in sampler_list:
+        for nfe in nfe_list:
+            t0 = time.perf_counter()
+            fake, dynamics = generate_samples_batched(
+                sampler_name=sampler_name,
+                score_fn=score_fn_sample,
+                shape_per_sample=shape_per_sample,
+                total=num_samples,
+                batch_size=eval_batch,
+                sigma_min=sigma_min,
+                sigma_max=sigma_max,
+                nfe=nfe,
+                device=device,
+                score_requires_grad=score_requires_grad,
+            )
+            elapsed = time.perf_counter() - t0
 
-        fid_kid = compute_fid_kid(fake=fake.to(device), real=real.to(device), device=device)
-        row = {
-            "sampler": main_sampler,
-            "nfe": int(nfe),
-            "fid": fid_kid.fid,
-            "kid": fid_kid.kid,
-            "trajectory_length_mean": dynamics["trajectory_length_mean"],
-            "curvature_proxy": dynamics["curvature_proxy"],
-        }
+            quality = compute_quality_metrics(
+                fake=fake,
+                real=real,
+                device=device,
+                want_is=want_is,
+                prefer_torch_fidelity=bool(eval_cfg.get("use_torch_fidelity", True)),
+            )
 
-        if cfg["dataset"]["name"] == "cifar10":
-            is_mean, is_std = compute_inception_score(fake, device=device)
-            row["inception_score_mean"] = is_mean
-            row["inception_score_std"] = is_std
-
-        fid_rows.append(row)
+            fid_rows.append(
+                {
+                    "sampler": sampler_name,
+                    "nfe": int(nfe),
+                    "fid": quality.fid,
+                    "kid": quality.kid,
+                    "is_mean": quality.inception_score_mean,
+                    "is_std": quality.inception_score_std,
+                    "metric_backend": quality.backend,
+                    "latency_sec": float(elapsed),
+                    "latency_per_step_ms": float(elapsed * 1000.0 / max(1, int(nfe))),
+                    "trajectory_length_mean": dynamics["trajectory_length_mean"],
+                    "curvature_proxy": dynamics["curvature_proxy"],
+                }
+            )
 
     _write_csv(run_dir / "eval" / "fid_vs_nfe.csv", fid_rows)
 
@@ -241,7 +241,15 @@ def main() -> None:
         dtype=x.dtype,
     )
 
-    integ_rows = integrability_by_sigma_bins(
+    feature_encoder = None
+    if bool(eval_cfg.get("enable_cycle_metrics", True)):
+        feature_encoder = build_feature_encoder(
+            dataset_name=str(cfg["dataset"]["name"]),
+            channels=int(cfg["dataset"].get("channels", 1)),
+            device=device,
+        )
+
+    integrability_rows = integrability_records_by_sigma(
         score_fn=score_fn_metric,
         x=x,
         sigma=sigma,
@@ -249,30 +257,75 @@ def main() -> None:
         sigma_max=sigma_max,
         bins=int(eval_cfg.get("sigma_bins", 8)),
         reg_k=int(loss_cfg.get("reg_k", 1)),
-        loop_delta=float(loss_cfg.get("loop_delta", 0.01)),
+        reg_sym_method=str(loss_cfg.get("reg_sym_method", "jvp_vjp")),
+        reg_sym_eps_fd=float(loss_cfg.get("reg_sym_eps_fd", 1.0e-3)),
+        loop_delta_set=loss_cfg.get("delta_set", [float(loss_cfg.get("loop_delta", 0.01))]),
         loop_sparse_ratio=float(loss_cfg.get("loop_sparse_ratio", 1.0)),
+        cycle_lengths=loss_cfg.get("cycle_lengths", [3, 4, 5]),
+        cycle_knn_k=int(loss_cfg.get("cycle_knn_k", 8)),
+        cycle_samples=int(loss_cfg.get("cycle_samples", 16)),
+        feature_encoder=feature_encoder,
     )
 
-    if cfg["dataset"]["name"] == "toy" and x.shape[-1] == 2:
-        # Exact Jacobian asymmetry is affordable in 2D toy setting.
+    if str(cfg["dataset"]["name"]).lower() == "toy" and x.ndim == 2 and x.shape[-1] == 2:
         exact = exact_jacobian_asymmetry_2d(score_fn_metric, x[: min(256, x.shape[0])], sigma[: min(256, x.shape[0])])
-        for row in integ_rows:
-            row["exact_jacobian_asymmetry_2d"] = exact
+        integrability_rows.append(
+            {
+                "bin": -1,
+                "sigma_lo": float("nan"),
+                "sigma_hi": float("nan"),
+                "count": int(min(256, x.shape[0])),
+                "metric_name": "exact_jacobian_asymmetry_2d",
+                "scale_delta": "",
+                "cycle_len": "",
+                "value": float(exact),
+            }
+        )
 
         path_cfg = eval_cfg.get("pathvar", {})
         if bool(path_cfg.get("enabled", False)) and x.shape[0] >= 2:
+            n = min(64, x.shape[0] - 1)
             pv = path_variance(
                 score_fn=score_fn_metric,
-                x_ref=x[:1].expand(min(64, x.shape[0] - 1), -1),
-                x_tgt=x[1 : 1 + min(64, x.shape[0] - 1)],
-                sigma=sigma[1 : 1 + min(64, x.shape[0] - 1)],
+                x_ref=x[:1].expand(n, -1),
+                x_tgt=x[1 : 1 + n],
+                sigma=sigma[1 : 1 + n],
                 num_paths=int(path_cfg.get("num_paths", 8)),
                 num_segments=int(path_cfg.get("num_segments", 12)),
             )
-            for row in integ_rows:
-                row["pathvar"] = pv
+            integrability_rows.append(
+                {
+                    "bin": -1,
+                    "sigma_lo": float("nan"),
+                    "sigma_hi": float("nan"),
+                    "count": int(n),
+                    "metric_name": "pathvar",
+                    "scale_delta": "",
+                    "cycle_len": "",
+                    "value": float(pv),
+                }
+            )
 
-    _write_csv(run_dir / "eval" / "integrability_vs_sigma.csv", integ_rows)
+    _write_csv(run_dir / "eval" / "integrability_vs_sigma.csv", integrability_rows)
+
+    train_metrics_rows = _read_metrics_csv(run_dir / cfg["logging"].get("csv_filename", "metrics.csv"))
+    compute_summary = _compute_summary_from_train_metrics(train_metrics_rows)
+    compute_summary.update(
+        {
+            "dataset": str(cfg["dataset"]["name"]),
+            "model_id": model_id,
+            "compute_tier": str(cfg.get("compute", {}).get("tier", "main")),
+            "compute_limited": bool(cfg.get("compute", {}).get("compute_limited", False)),
+            "eval_num_samples": int(num_samples),
+            "nfe_grid": nfe_list,
+        }
+    )
+
+    out_json = run_dir / "eval" / "compute_summary.json"
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    with out_json.open("w", encoding="utf-8") as f:
+        json.dump(compute_summary, f, indent=2)
+
     print(str(run_dir / "eval"))
 
 

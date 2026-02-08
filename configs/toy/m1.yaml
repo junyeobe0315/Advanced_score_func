@@ -1,0 +1,10 @@
+base_config: base.yaml
+experiment:
+  model_id: M1
+model:
+  variant: reg
+  type: mlp
+loss:
+  lambda_sym: 0.20
+  mu_loop: 0.0
+  reg_k: 2

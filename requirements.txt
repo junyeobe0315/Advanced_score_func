@@ -6,3 +6,5 @@ scipy>=1.11
 tensorboard>=2.16
 pytest>=8.0
 rich>=13.7
+torch-fidelity>=0.3.0
+clean-fid>=0.1.35

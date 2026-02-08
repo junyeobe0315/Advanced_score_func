@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from src.trainers import train
-from src.utils.config import ensure_required_sections, load_config
+from src.utils.config import ensure_experiment_defaults, ensure_required_sections, load_config
 from src.utils.seed import seed_everything
 
 
@@ -27,6 +27,7 @@ def main() -> None:
     args = parse_args()
     cfg = load_config(args.sweep)
     ensure_required_sections(cfg)
+    cfg = ensure_experiment_defaults(cfg)
 
     seeds = [int(x.strip()) for x in args.seeds.split(",") if x.strip()]
     for seed in seeds:

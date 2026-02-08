@@ -4,7 +4,7 @@ import argparse
 import yaml
 
 from src.trainers import train
-from src.utils.config import apply_overrides, ensure_required_sections, load_config
+from src.utils.config import apply_overrides, ensure_experiment_defaults, ensure_required_sections, load_config
 from src.utils.seed import seed_everything
 
 
@@ -58,9 +58,11 @@ def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
     ensure_required_sections(cfg)
+    cfg = ensure_experiment_defaults(cfg)
 
     if args.override:
         cfg = apply_overrides(cfg, parse_overrides(args.override))
+        cfg = ensure_experiment_defaults(cfg)
 
     if args.seed is not None:
         cfg["train"]["seed"] = int(args.seed)

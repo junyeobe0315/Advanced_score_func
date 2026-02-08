@@ -1,0 +1,11 @@
+base_config: base.yaml
+experiment:
+  model_id: M1
+model:
+  variant: reg
+  type: unet
+loss:
+  lambda_sym: 0.05
+  mu_loop: 0.0
+  reg_k: 1
+  reg_freq: 1

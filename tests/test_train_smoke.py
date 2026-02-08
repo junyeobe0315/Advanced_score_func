@@ -34,15 +34,24 @@ def _prepare_cfg(root: Path, name: str, run_root: Path) -> dict:
     cfg["train"]["log_every"] = 2
     cfg["train"]["keep_last_k"] = 1
     cfg["dataset"]["batch_size"] = 64
+    cfg["loss"]["cycle_samples"] = 4
+    cfg["loss"]["cycle_subset"] = 32
     return cfg
 
 
-def test_train_smoke_for_all_variants(tmp_path: Path) -> None:
-    """Smoke test tiny training runs for baseline/reg/struct variants."""
+def test_train_smoke_for_all_models(tmp_path: Path) -> None:
+    """Smoke test tiny training runs for M0..M4 variants."""
     repo_root = Path(__file__).resolve().parents[1]
     run_root = tmp_path / "runs"
 
-    for cfg_name in ["toy_baseline.yaml", "toy_reg.yaml", "toy_struct.yaml"]:
+    cfg_names = [
+        "toy/m0.yaml",
+        "toy/m1.yaml",
+        "toy/m2.yaml",
+        "toy/m3.yaml",
+        "toy/m4.yaml",
+    ]
+    for cfg_name in cfg_names:
         cfg = _prepare_cfg(repo_root, cfg_name, run_root)
         seed_everything(0)
         run_dir = train(cfg, seed=0)

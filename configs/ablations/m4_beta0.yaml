@@ -1,0 +1,3 @@
+base_config: ../cifar10/m4.yaml
+loss:
+  beta: 0.0
