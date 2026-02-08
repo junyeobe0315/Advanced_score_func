@@ -63,6 +63,11 @@ bash scripts/run_ffhq256_all.sh
 
 `run_cifar_smoke.sh` runs the 5 models with short steps for pipeline validation.
 
+## Notebook Tools
+
+- `notebooks/toy_visual_dashboard.ipynb`: 기존 run artifact를 읽어 Toy 결과를 한눈에 비교.
+- `notebooks/toy_tiny_training_viz.ipynb`: 아주 작은 학습 루프를 epoch마다 직접 시각화해 학습 속도/품질 비교.
+
 ## 5-Way Config Sets
 
 - Toy: `configs/toy/m0.yaml` ... `configs/toy/m4.yaml`
