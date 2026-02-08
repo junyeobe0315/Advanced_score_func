@@ -1,0 +1,7 @@
+base_config: base_toy.yaml
+model:
+  variant: baseline
+  type: mlp
+loss:
+  lambda_sym: 0.0
+  mu_loop: 0.0

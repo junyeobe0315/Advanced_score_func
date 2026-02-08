@@ -1,0 +1,3 @@
+base_config: ../cifar_reg.yaml
+loss:
+  loop_delta: 0.004

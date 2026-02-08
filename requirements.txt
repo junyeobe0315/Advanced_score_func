@@ -1,0 +1,8 @@
+numpy>=1.26
+pyyaml>=6.0
+tqdm>=4.66
+matplotlib>=3.8
+scipy>=1.11
+tensorboard>=2.16
+pytest>=8.0
+rich>=13.7

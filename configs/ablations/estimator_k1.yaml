@@ -1,0 +1,3 @@
+base_config: ../cifar_reg.yaml
+loss:
+  reg_k: 1

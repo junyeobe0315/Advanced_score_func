@@ -1,0 +1,9 @@
+base_config: base_cifar.yaml
+model:
+  variant: reg
+  type: unet
+loss:
+  lambda_sym: 0.03
+  mu_loop: 0.03
+  reg_k: 1
+  reg_freq: 4

@@ -1,0 +1,4 @@
+base_config: ../cifar_reg.yaml
+loss:
+  lambda_sym: 0.03
+  mu_loop: 0.0
