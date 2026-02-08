@@ -1,0 +1,10 @@
+base_config: base_imagenet512.yaml
+model:
+  variant: struct
+  type: potential_unet
+  base_channels: 28
+train:
+  grad_accum_steps: 24
+loss:
+  lambda_sym: 0.0
+  mu_loop: 0.0

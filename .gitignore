@@ -9,9 +9,9 @@ __pycache__/
 .venv/
 venv/
 
-runs/
-reports/
-data/
+/runs/
+/reports/
+/data/
 
 *.pt
 *.pth

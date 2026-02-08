@@ -1,0 +1,7 @@
+base_config: base_imagenet512.yaml
+model:
+  variant: baseline
+  type: unet
+loss:
+  lambda_sym: 0.0
+  mu_loop: 0.0
