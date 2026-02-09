@@ -33,6 +33,56 @@ def sample_log_uniform_sigmas(
     return torch.exp(log_min + u * (log_max - log_min))
 
 
+def sample_training_sigmas(
+    batch_size: int,
+    sigma_min: float,
+    sigma_max: float,
+    device: torch.device,
+    dtype: torch.dtype,
+    mode: str = "log_uniform",
+    edm_p_mean: float = -1.2,
+    edm_p_std: float = 1.2,
+    clamp: bool = True,
+) -> torch.Tensor:
+    """Sample training sigmas using configurable policy.
+
+    Args:
+        batch_size: Number of sigma samples.
+        sigma_min: Minimum sigma used by schedule/config.
+        sigma_max: Maximum sigma used by schedule/config.
+        device: Target device.
+        dtype: Target dtype.
+        mode: Sampling policy token. Supported values:
+            ``"log_uniform"`` and ``"edm_lognormal"`` (aliases: ``"edm"``,
+            ``"lognormal"``).
+        edm_p_mean: EDM log-normal mean parameter.
+        edm_p_std: EDM log-normal std parameter.
+        clamp: Whether to clip sampled sigmas to ``[sigma_min, sigma_max]``.
+
+    Returns:
+        Tensor of shape ``[batch_size]`` with sampled sigmas.
+    """
+    token = str(mode).lower()
+    if token in {"log_uniform", "loguniform"}:
+        return sample_log_uniform_sigmas(
+            batch_size=batch_size,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            device=device,
+            dtype=dtype,
+        )
+
+    if token in {"edm", "edm_lognormal", "lognormal"}:
+        sigma = torch.exp(
+            torch.randn(batch_size, device=device, dtype=dtype) * float(edm_p_std) + float(edm_p_mean)
+        )
+        if clamp:
+            sigma = sigma.clamp(min=float(sigma_min), max=float(sigma_max))
+        return sigma
+
+    raise ValueError(f"unknown sigma sampling mode: {mode}")
+
+
 def make_sigma_schedule(
     sigma_min: float,
     sigma_max: float,

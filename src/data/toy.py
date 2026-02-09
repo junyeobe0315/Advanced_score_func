@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+from .loader_opts import make_loader_kwargs
+
 
 @dataclass
 class ToyParams:
@@ -120,13 +122,7 @@ def make_toy_loader(cfg: dict, train: bool = True) -> DataLoader:
     params = _build_params(cfg)
     # Longer virtual epoch for train mode to reduce iterator restarts.
     ds = ToyGMMDataset(params=params, length=200_000 if train else 20_000)
-    return DataLoader(
-        ds,
-        batch_size=int(cfg["dataset"]["batch_size"]),
-        shuffle=True,
-        num_workers=int(cfg["dataset"].get("num_workers", 0)),
-        drop_last=train,
-    )
+    return DataLoader(ds, **make_loader_kwargs(cfg, train=train, shuffle=True, default_num_workers=0))
 
 
 def sample_toy_data(cfg: dict, num_samples: int) -> torch.Tensor:

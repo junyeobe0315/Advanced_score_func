@@ -37,17 +37,14 @@ def _circulation_from_cycles(
         return torch.zeros((0,), device=score_flat.device, dtype=score_flat.dtype)
 
     n_cycles, length = int(cycles.shape[0]), int(cycles.shape[1])
-    total = torch.zeros((n_cycles,), device=score_flat.device, dtype=score_flat.dtype)
+    idx_i = cycles.reshape(-1)
+    idx_j = torch.roll(cycles, shifts=-1, dims=1).reshape(-1)
 
-    for i in range(length):
-        idx_i = cycles[:, i]
-        idx_j = cycles[:, (i + 1) % length]
-
-        s_i = score_flat[idx_i]
-        dx = x_flat[idx_j] - x_flat[idx_i]
-        total = total + (s_i * dx).sum(dim=1)
-
-    return total
+    s_i = score_flat.index_select(0, idx_i).view(n_cycles, length, -1)
+    x_i = x_flat.index_select(0, idx_i).view(n_cycles, length, -1)
+    x_j = x_flat.index_select(0, idx_j).view(n_cycles, length, -1)
+    dx = x_j - x_i
+    return (s_i * dx).sum(dim=2).sum(dim=1)
 
 
 def graph_cycle_estimator(
@@ -60,6 +57,7 @@ def graph_cycle_estimator(
     num_cycles: int,
     subset_size: int | None = None,
     generator: torch.Generator | None = None,
+    precomputed_score: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[int, torch.Tensor]]:
     """Estimate nonlocal graph-cycle consistency loss for M3/M4.
 
@@ -73,6 +71,7 @@ def graph_cycle_estimator(
         num_cycles: Number of sampled cycles per length.
         subset_size: Optional subset size to reduce compute.
         generator: Optional PRNG generator.
+        precomputed_score: Optional precomputed score for ``x``/subset.
 
     Returns:
         Tuple ``(mean_energy, per_length)`` where ``per_length`` stores
@@ -103,7 +102,23 @@ def graph_cycle_estimator(
     knn = knn_indices(feat_2d, k=int(k), exclude_self=True)
     cycle_map = sample_cycles(knn, cycle_lengths=cycle_lengths, num_cycles=int(num_cycles), generator=generator)
 
-    score = score_fn(x_use, sigma_use)
+    # Skip score-model forward when no cycle was sampled for any requested length.
+    has_any_cycle = False
+    for length in cycle_lengths:
+        cycles = cycle_map.get(int(length))
+        if cycles is not None and cycles.numel() > 0:
+            has_any_cycle = True
+            break
+    if not has_any_cycle:
+        zero = torch.zeros((), device=x.device, dtype=x.dtype)
+        return zero, {int(l): zero for l in cycle_lengths}
+
+    if precomputed_score is None:
+        score = score_fn(x_use, sigma_use)
+    else:
+        if precomputed_score.shape != x_use.shape:
+            raise ValueError("precomputed_score must match x (or subset) shape")
+        score = precomputed_score
     score_flat = _flatten(score)
     x_flat = _flatten(x_use)
 

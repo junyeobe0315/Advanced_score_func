@@ -12,7 +12,7 @@ loss:
   alpha: 0.02
   beta: 0.01
   sigma_c: 1.00
-  reg_sym_method: jvp_vjp
+  reg_sym_method: auto_fast
   reg_sym_eps_fd: 1.0e-3
   delta_set: [0.0008, 0.0015, 0.0030]
   cycle_knn_k: 8
@@ -20,6 +20,8 @@ loss:
   cycle_samples: 8
   cycle_subset: 8
   reg_freq: 8
+  cycle_freq: 2
+  boundary_freq: 2
   reg_low_noise_only: true
 
 model:

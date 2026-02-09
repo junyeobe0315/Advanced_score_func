@@ -24,9 +24,13 @@ model:
   depth: 3
   sigma_embed_dim: 64
   channels: 1
+  preconditioning:
+    type: edm
+    sigma_data: 0.5
+    sigma_eps: 1.0e-5
 
 train:
-  total_steps: 50000
+  total_steps: 30000
   grad_accum_steps: 1
   amp: false
   lr: 1.0e-4
@@ -40,6 +44,12 @@ train:
   seed: 0
 
 loss:
+  objective: edm_denoiser
+  sigma_sampling: edm_lognormal
+  edm_p_mean: -1.2
+  edm_p_std: 1.2
+  sigma_sample_clamp: true
+  sigma_data: 0.5
   weight_mode: sigma2
   sigma_min: 0.01
   sigma_max: 2.0

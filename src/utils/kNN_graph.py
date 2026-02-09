@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Iterable
 
 import torch
@@ -56,11 +57,6 @@ def knn_indices(features: torch.Tensor, k: int, exclude_self: bool = True) -> to
     return torch.topk(dist, k=k, largest=False, dim=1).indices
 
 
-def _edge_lookup(knn: torch.Tensor) -> list[set[int]]:
-    """Create O(1) adjacency lookup sets from kNN table."""
-    return [set(row.detach().cpu().tolist()) for row in knn]
-
-
 def sample_cycles(
     knn: torch.Tensor,
     cycle_lengths: Iterable[int],
@@ -86,49 +82,72 @@ def sample_cycles(
     if knn.ndim != 2:
         raise ValueError("sample_cycles expects knn shape [B, k]")
 
-    bsz = int(knn.shape[0])
-    adj = _edge_lookup(knn)
+    bsz, k = int(knn.shape[0]), int(knn.shape[1])
     out: dict[int, torch.Tensor] = {}
+
+    if bsz < 3 or k <= 0 or int(num_cycles) <= 0:
+        for raw_l in cycle_lengths:
+            length = int(raw_l)
+            if length < 3:
+                continue
+            out[length] = torch.empty((0, length), device=knn.device, dtype=torch.long)
+        return out
+
+    # Dense adjacency for O(1) closure checks: last node must connect to start.
+    adj = torch.zeros((bsz, bsz), device=knn.device, dtype=torch.bool)
+    row_idx = torch.arange(bsz, device=knn.device).view(bsz, 1).expand(bsz, k)
+    adj[row_idx.reshape(-1), knn.reshape(-1)] = True
 
     for raw_l in cycle_lengths:
         length = int(raw_l)
         if length < 3:
             continue
 
-        picked: list[list[int]] = []
-        max_attempts = max(10 * int(num_cycles), 100)
-        attempts = 0
+        target = int(num_cycles)
+        # Vectorized proposal sampler. Oversampling keeps acceptance high while
+        # reducing Python-level loop overhead versus per-cycle rejection loops.
+        proposal_batch = max(target * 8, 128)
+        max_rounds = max(10, int(math.ceil((target * 20) / proposal_batch)))
 
-        while len(picked) < int(num_cycles) and attempts < max_attempts:
-            attempts += 1
-            start = int(torch.randint(0, bsz, (1,), generator=generator).item())
-            cycle = [start]
-            used = {start}
+        chunks: list[torch.Tensor] = []
+        picked_count = 0
 
-            valid = True
-            for _ in range(length - 1):
-                neigh = knn[cycle[-1]]
-                cand = [int(n.item()) for n in neigh if int(n.item()) not in used]
-                if not cand:
-                    valid = False
-                    break
+        for _ in range(max_rounds):
+            if picked_count >= target:
+                break
 
-                idx = int(torch.randint(0, len(cand), (1,), generator=generator).item())
-                nxt = cand[idx]
-                cycle.append(nxt)
-                used.add(nxt)
+            starts = torch.randint(0, bsz, (proposal_batch,), device=knn.device, generator=generator)
+            cycles = torch.empty((proposal_batch, length), device=knn.device, dtype=torch.long)
+            cycles[:, 0] = starts
+            current = starts
 
-            if not valid:
+            # Build random walk over kNN edges.
+            for pos in range(1, length):
+                ridx = torch.randint(0, k, (proposal_batch,), device=knn.device, generator=generator)
+                current = knn[current, ridx]
+                cycles[:, pos] = current
+
+            # Keep only simple cycles (no repeated vertices).
+            sorted_vals = torch.sort(cycles, dim=1).values
+            unique_mask = (sorted_vals[:, 1:] != sorted_vals[:, :-1]).all(dim=1)
+
+            # Enforce explicit closure edge from last node back to start.
+            closure_mask = adj[current, starts]
+            valid = unique_mask & closure_mask
+            if not bool(valid.any()):
                 continue
 
-            if start not in adj[cycle[-1]]:
-                continue
+            picked = cycles[valid]
+            need = target - picked_count
+            if picked.shape[0] > need:
+                picked = picked[:need]
 
-            picked.append(cycle)
+            chunks.append(picked)
+            picked_count += int(picked.shape[0])
 
-        if picked:
-            out[length] = torch.tensor(picked, device=knn.device, dtype=torch.long)
-        else:
+        if not chunks:
             out[length] = torch.empty((0, length), device=knn.device, dtype=torch.long)
+        else:
+            out[length] = torch.cat(chunks, dim=0)
 
     return out

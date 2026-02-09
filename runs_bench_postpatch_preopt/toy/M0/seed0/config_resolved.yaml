@@ -1,0 +1,117 @@
+project:
+  name: advance_score
+  run_root: runs_bench_postpatch_preopt
+dataset:
+  name: toy
+  data_root: data
+  batch_size: 1024
+  num_workers: 0
+  pin_memory: false
+  image_size: null
+  channels: 1
+  toy:
+    kind: gmm
+    dim: 2
+    n_modes: 8
+    radius: 4.0
+    std: 0.35
+model:
+  variant: baseline
+  type: mlp
+  hidden_dim: 256
+  depth: 3
+  sigma_embed_dim: 64
+  channels: 1
+  preconditioning:
+    type: edm
+    sigma_data: 0.5
+    sigma_eps: 1.0e-05
+  hybrid:
+    high_type: mlp
+    low_type: mlp_potential
+train:
+  total_steps: 300
+  grad_accum_steps: 1
+  amp: false
+  lr: 0.0001
+  betas:
+  - 0.9
+  - 0.999
+  weight_decay: 0.01
+  ema_decay: 0.999
+  clip_grad_norm: 1.0
+  log_every: 50
+  ckpt_every: 300
+  keep_last_k: 3
+  seed: 0
+loss:
+  objective: edm_denoiser
+  sigma_sampling: edm_lognormal
+  edm_p_mean: -1.2
+  edm_p_std: 1.2
+  sigma_sample_clamp: true
+  sigma_data: 0.5
+  weight_mode: sigma2
+  sigma_min: 0.01
+  sigma_max: 2.0
+  lambda_sym: 0.0
+  mu_loop: 0.0
+  reg_k: 1
+  reg_freq: 1
+  reg_low_noise_only: true
+  reg_low_noise_threshold: 0.25
+  loop_delta: 0.03
+  loop_sparse_ratio: 1.0
+  sigma0: 0.25
+  lambda0: 0.2
+  mu1: 0.0
+  mu2: 0.0
+  alpha: 0.0
+  beta: 0.0
+  sigma_c: 0.25
+  reg_sym_method: auto_fast
+  reg_sym_eps_fd: 0.001
+  delta_set:
+  - 0.02
+  - 0.05
+  - 0.1
+  cycle_knn_k: 8
+  cycle_lengths:
+  - 3
+  - 4
+  - 5
+  cycle_samples: 64
+  cycle_subset: null
+sampler:
+  main: heun
+  compare:
+  - euler
+  nfe_list:
+  - 10
+  - 20
+  - 50
+  - 100
+  - 200
+eval:
+  batch_size: 2048
+  num_fid_samples: 10000
+  sigma_bins: 8
+  integrability_batch: 1024
+  pathvar:
+    enabled: true
+    num_paths: 8
+    num_segments: 12
+  use_torch_fidelity: true
+  enable_cycle_metrics: true
+logging:
+  use_tensorboard: true
+  csv_filename: metrics.csv
+compute:
+  device: auto
+  cudnn_benchmark: true
+  precision: fp32
+  target_gpu_hours: 2
+experiment:
+  name: integrability_5way
+  model_id: M0
+  config_hash: b6d7cb999971

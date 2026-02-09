@@ -70,6 +70,8 @@ def integrability_records_by_sigma(
     bins: int,
     reg_k: int,
     reg_sym_method: str,
+    reg_sym_variant: str,
+    reg_sym_probe_dist: str,
     reg_sym_eps_fd: float,
     loop_delta_set: Iterable[float],
     loop_sparse_ratio: float,
@@ -132,6 +134,8 @@ def integrability_records_by_sigma(
             sigma=sb,
             K=int(reg_k),
             method=str(reg_sym_method),
+            variant=str(reg_sym_variant),
+            probe_dist=str(reg_sym_probe_dist),
             eps_fd=float(reg_sym_eps_fd),
         )
         rows.append(

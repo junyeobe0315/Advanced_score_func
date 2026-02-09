@@ -258,6 +258,8 @@ def main() -> None:
         bins=int(eval_cfg.get("sigma_bins", 8)),
         reg_k=int(loss_cfg.get("reg_k", 1)),
         reg_sym_method=str(loss_cfg.get("reg_sym_method", "jvp_vjp")),
+        reg_sym_variant=str(loss_cfg.get("reg_sym_variant", "skew_fro")),
+        reg_sym_probe_dist=str(loss_cfg.get("reg_sym_probe_dist", "gaussian")),
         reg_sym_eps_fd=float(loss_cfg.get("reg_sym_eps_fd", 1.0e-3)),
         loop_delta_set=loss_cfg.get("delta_set", [float(loss_cfg.get("loop_delta", 0.01))]),
         loop_sparse_ratio=float(loss_cfg.get("loop_sparse_ratio", 1.0)),

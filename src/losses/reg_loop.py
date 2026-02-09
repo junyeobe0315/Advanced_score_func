@@ -16,6 +16,7 @@ def reg_loop_estimator(
     sigma: torch.Tensor,
     delta: float,
     sparse_ratio: float = 1.0,
+    base_score: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Backward-compatible single-scale loop consistency estimator.
 
@@ -25,6 +26,7 @@ def reg_loop_estimator(
         sigma: Per-sample noise levels.
         delta: Side length of the small rectangle loop.
         sparse_ratio: Ratio of active dimensions in random loop directions.
+        base_score: Optional cached anchor score ``s(x, sigma)``.
 
     Returns:
         Scalar loop regularization estimate.
@@ -35,5 +37,6 @@ def reg_loop_estimator(
         sigma=sigma,
         delta=float(delta),
         sparse_ratio=float(sparse_ratio),
+        base_score=base_score,
     )
     return (circ**2).mean()

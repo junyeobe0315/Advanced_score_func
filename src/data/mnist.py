@@ -3,6 +3,8 @@ from __future__ import annotations
 import torch
 from torch.utils.data import DataLoader
 
+from .loader_opts import make_loader_kwargs
+
 
 def _get_torchvision():
     """Import torchvision dataset and transform modules lazily.
@@ -52,14 +54,7 @@ def make_mnist_loader(cfg: dict, train: bool = True) -> DataLoader:
         download=True,
     )
 
-    loader = DataLoader(
-        ds,
-        batch_size=int(cfg["dataset"]["batch_size"]),
-        shuffle=train,
-        num_workers=int(cfg["dataset"].get("num_workers", 4)),
-        pin_memory=bool(cfg["dataset"].get("pin_memory", True)),
-        drop_last=train,
-    )
+    loader = DataLoader(ds, **make_loader_kwargs(cfg, train=train, shuffle=train, default_num_workers=4))
     return loader
 
 

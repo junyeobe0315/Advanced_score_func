@@ -5,6 +5,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
+from .loader_opts import make_loader_kwargs
+
 
 def _get_torchvision():
     """Import torchvision modules lazily for optional dependency safety.
@@ -102,14 +104,7 @@ def make_ffhq_loader(cfg: dict, train: bool = True) -> DataLoader:
     transform = _build_transform(image_size=image_size, train=train, random_flip=random_flip)
     dataset = datasets.ImageFolder(root=str(split_dir), transform=transform)
 
-    loader = DataLoader(
-        dataset,
-        batch_size=int(ds_cfg["batch_size"]),
-        shuffle=train,
-        num_workers=int(ds_cfg.get("num_workers", 4)),
-        pin_memory=bool(ds_cfg.get("pin_memory", True)),
-        drop_last=train,
-    )
+    loader = DataLoader(dataset, **make_loader_kwargs(cfg, train=train, shuffle=train, default_num_workers=4))
     return loader
 
 

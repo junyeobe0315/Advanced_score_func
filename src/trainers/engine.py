@@ -24,6 +24,48 @@ from .train_step_reg import train_step_reg
 from .train_step_struct import train_step_struct
 
 
+def _resolve_amp_dtype(cfg: dict, device: torch.device) -> torch.dtype:
+    """Resolve autocast dtype for AMP training."""
+    token = str(cfg["train"].get("amp_dtype", cfg.get("compute", {}).get("amp_dtype", "auto"))).lower()
+    if token in {"fp16", "float16", "half"}:
+        return torch.float16
+    if token in {"bf16", "bfloat16"}:
+        return torch.bfloat16
+    if token != "auto":
+        raise ValueError(f"unknown amp_dtype: {token}")
+    # Keep backward-compatible default behavior for stability/speed tradeoff.
+    del device
+    return torch.float16
+
+
+def _build_adamw(cfg: dict, model: torch.nn.Module, device: torch.device) -> torch.optim.Optimizer:
+    """Build AdamW optimizer with fast CUDA backends when available."""
+    base_kwargs = {
+        "lr": float(cfg["train"]["lr"]),
+        "betas": tuple(cfg["train"]["betas"]),
+        "weight_decay": float(cfg["train"].get("weight_decay", 0.01)),
+    }
+
+    if device.type != "cuda":
+        return torch.optim.AdamW(model.parameters(), **base_kwargs)
+
+    # Prefer fused CUDA AdamW, then foreach, then plain AdamW fallback.
+    candidates = [
+        {"fused": True},
+        {"foreach": True},
+        {},
+    ]
+    last_error: Exception | None = None
+    for extra in candidates:
+        try:
+            return torch.optim.AdamW(model.parameters(), **base_kwargs, **extra)
+        except (TypeError, RuntimeError, ValueError) as err:
+            last_error = err
+            continue
+    assert last_error is not None
+    raise last_error
+
+
 def resolve_device(cfg: dict) -> torch.device:
     """Resolve runtime device from config and hardware availability.
 
@@ -132,21 +174,22 @@ def train(cfg: dict, seed: int | None = None) -> Path:
     device = resolve_device(cfg)
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = bool(cfg["compute"].get("cudnn_benchmark", True))
+        allow_tf32 = bool(cfg["compute"].get("allow_tf32", True))
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+        torch.backends.cudnn.allow_tf32 = allow_tf32
 
     run_dir = make_run_dir(cfg, seed)
     run_dir.mkdir(parents=True, exist_ok=True)
     save_config(cfg, run_dir / "config_resolved.yaml")
 
     model = build_model(cfg).to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=float(cfg["train"]["lr"]),
-        betas=tuple(cfg["train"]["betas"]),
-        weight_decay=float(cfg["train"].get("weight_decay", 0.01)),
-    )
+    optimizer = _build_adamw(cfg=cfg, model=model, device=device)
 
     use_amp = bool(cfg["train"].get("amp", False)) and device.type == "cuda"
-    scaler = amp.GradScaler("cuda", enabled=use_amp)
+    amp_dtype = _resolve_amp_dtype(cfg, device) if use_amp else torch.float16
+    # GradScaler is only needed for fp16. bf16 is typically stable without scaling.
+    use_scaler = use_amp and amp_dtype == torch.float16
+    scaler = amp.GradScaler("cuda", enabled=use_scaler)
     ema = EMA(model, decay=float(cfg["train"].get("ema_decay", 0.999)))
     ema.to(device)
 
@@ -189,7 +232,7 @@ def train(cfg: dict, seed: int | None = None) -> Path:
 
         x0 = unpack_batch(batch).to(device)
 
-        with amp.autocast("cuda", enabled=use_amp):
+        with amp.autocast("cuda", enabled=use_amp, dtype=amp_dtype):
             loss, loss_metrics = _run_step(
                 step_fn=step_fn,
                 model_id=model_id,

@@ -4,7 +4,7 @@ experiment:
 model:
   variant: struct
   type: mlp_potential
-  hidden_dim: 288
+  hidden_dim: 256
   depth: 3
 train:
   amp: false

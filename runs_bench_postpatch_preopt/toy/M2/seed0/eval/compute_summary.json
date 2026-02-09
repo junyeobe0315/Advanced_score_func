@@ -1,0 +1,15 @@
+{
+  "train_step_time_ms_mean": 31.60053685652591,
+  "train_imgs_per_sec_mean": 32977.12559217823,
+  "peak_vram_mb": 0.0,
+  "approx_gpu_hours": 6.144548833213371e-05,
+  "dataset": "toy",
+  "model_id": "M2",
+  "compute_tier": "main",
+  "compute_limited": false,
+  "eval_num_samples": 10000,
+  "nfe_grid": [
+    20,
+    50
+  ]
+}

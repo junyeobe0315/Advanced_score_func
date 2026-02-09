@@ -13,3 +13,9 @@ loss:
   beta: 0.025
   sigma_c: 0.50
   mu2: 0.0
+  boundary_subset: 8
+  cycle_subset: 8
+  cycle_samples: 8
+  match_freq: 1
+  cycle_freq: 2
+  cycle_same_sigma: true

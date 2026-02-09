@@ -11,6 +11,7 @@ def boundary_match_estimator(
     sigma_c: float,
     bandwidth: float = 0.05,
     create_graph: bool = True,
+    treat_input_as_clean: bool = False,
 ) -> torch.Tensor:
     """Compute M4 boundary matching loss around split threshold ``sigma_c``.
 
@@ -20,6 +21,8 @@ def boundary_match_estimator(
         sigma_c: Split threshold for low/high noise branches.
         bandwidth: Relative perturbation width around ``sigma_c``.
         create_graph: Whether low-branch gradient path keeps graph.
+        treat_input_as_clean: If ``True``, treats input as clean samples and
+            creates boundary-noised states via ``x + sigma * eps``.
 
     Returns:
         Scalar mean-squared mismatch between low/high branch scores.
@@ -36,6 +39,13 @@ def boundary_match_estimator(
     noise = (2.0 * torch.rand((bsz,), device=x.device, dtype=x.dtype) - 1.0) * float(bandwidth)
     sigma = torch.full((bsz,), float(sigma_c), device=x.device, dtype=x.dtype) * (1.0 + noise)
 
-    low, high = model.boundary_score_pair(x, sigma, create_graph=create_graph)
+    if treat_input_as_clean:
+        eps = torch.randn_like(x)
+        sigma_view = sigma.view(x.shape[0], *([1] * (x.ndim - 1)))
+        x_eval = x + sigma_view * eps
+    else:
+        x_eval = x
+
+    low, high = model.boundary_score_pair(x_eval, sigma, create_graph=create_graph)
     diff = low - high
     return (diff.flatten(start_dim=1) ** 2).mean()

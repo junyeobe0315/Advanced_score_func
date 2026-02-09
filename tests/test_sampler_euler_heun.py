@@ -38,13 +38,14 @@ def test_sampler_reproducibility_and_nfe() -> None:
     assert st2["nfe"] == 10
 
 
-def test_heun_matches_euler_for_constant_field() -> None:
-    """Heun and Euler should match on constant slope vector fields."""
+def test_heun_matches_euler_for_constant_drift() -> None:
+    """Heun and Euler should match when EDM drift is constant."""
 
     def score_fn(x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
-        """Constant vector field independent of state and sigma."""
-        del x, sigma
-        return torch.ones(8, 2) * 0.25
+        """Choose score so EDM drift ``-sigma * score`` becomes constant."""
+        del x
+        sigma_v = sigma.view(-1, 1).clamp_min(1.0e-12)
+        return torch.ones((sigma.shape[0], 2)) * (0.25 / sigma_v)
 
     init = torch.zeros(8, 2)
     out_e, _ = sample_euler(

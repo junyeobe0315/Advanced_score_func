@@ -9,6 +9,7 @@ import torch.nn as nn
 from src.utils.config import resolve_model_id
 
 from .hybrid_wrapper import HybridWrapper
+from .edm_precond import EDMPreconditionedScore
 from .potential_net import score_from_potential
 from .potential_mlp_toy import PotentialMLPToy
 from .potential_unet import PotentialUNet
@@ -63,6 +64,28 @@ def _build_score_network(cfg: dict, model_cfg: dict) -> nn.Module:
         attn_resolutions=list(model_cfg.get("attn_resolutions", [16])),
         sigma_embed_dim=int(model_cfg.get("sigma_embed_dim", 128)),
         dropout=float(model_cfg.get("dropout", 0.0)),
+    )
+
+
+def _preconditioning_mode(model_cfg: dict) -> str:
+    """Read score preconditioning mode from model config."""
+    pre = model_cfg.get("preconditioning", {})
+    return str(pre.get("type", pre.get("mode", "none"))).lower()
+
+
+def _maybe_wrap_preconditioned_score(net: nn.Module, model_cfg: dict) -> nn.Module:
+    """Optionally wrap score network with EDM preconditioning."""
+    mode = _preconditioning_mode(model_cfg)
+    if mode in {"none", "off", "false"}:
+        return net
+    if mode != "edm":
+        raise ValueError(f"unknown score preconditioning mode: {mode}")
+
+    pre = model_cfg.get("preconditioning", {})
+    return EDMPreconditionedScore(
+        backbone=net,
+        sigma_data=float(pre.get("sigma_data", 0.5)),
+        sigma_eps=float(pre.get("sigma_eps", 1.0e-5)),
     )
 
 
@@ -122,7 +145,7 @@ def build_model(cfg: dict) -> nn.Module:
 
     if model_id in {"M0", "M1", "M3"}:
         model_cfg["type"] = model_cfg.get("type", _default_score_type(dataset_name))
-        return _build_score_network(cfg, model_cfg)
+        return _maybe_wrap_preconditioned_score(_build_score_network(cfg, model_cfg), model_cfg)
 
     if model_id == "M2":
         model_cfg["type"] = model_cfg.get("type", _default_potential_type(dataset_name))
@@ -146,10 +169,12 @@ def build_model(cfg: dict) -> nn.Module:
             low_cfg["depth"] = int(hybrid_cfg["low_depth"])
 
         sigma_c = float(cfg["loss"].get("sigma_c", cfg["loss"].get("sigma0", 0.25)))
+        mixed_mode = str(hybrid_cfg.get("mixed_mode", "split"))
         return HybridWrapper(
-            score_high=_build_score_network(cfg, high_cfg),
+            score_high=_maybe_wrap_preconditioned_score(_build_score_network(cfg, high_cfg), high_cfg),
             potential_low=_build_potential_network(cfg, low_cfg),
             sigma_c=sigma_c,
+            mixed_mode=mixed_mode,
         )
 
     raise ValueError(f"unsupported model_id: {model_id}")

@@ -30,12 +30,24 @@ def _jvp_forward_mode(
     return jvp
 
 
+def _sample_probe(x: torch.Tensor, dist: str) -> torch.Tensor:
+    """Sample Hutchinson probe vector from requested distribution."""
+    token = str(dist).lower()
+    if token in {"gaussian", "normal"}:
+        return torch.randn_like(x)
+    if token in {"rademacher", "rad"}:
+        v = torch.randint(0, 2, x.shape, device=x.device, dtype=torch.int64).to(dtype=x.dtype)
+        return 2.0 * v - 1.0
+    raise ValueError(f"unknown probe distribution: {dist}")
+
+
 def _jvp_finite_difference(
     score_fn: ScoreFn,
     x: torch.Tensor,
     sigma: torch.Tensor,
     v: torch.Tensor,
     eps_fd: float,
+    s_base: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Approximate Jacobian-vector product ``Jv`` using finite difference.
 
@@ -50,8 +62,21 @@ def _jvp_finite_difference(
         Approximate ``Jv`` tensor.
     """
     s_plus = score_fn(x + eps_fd * v, sigma)
-    s_base = score_fn(x, sigma)
-    return (s_plus - s_base) / eps_fd
+    base = s_base if s_base is not None else score_fn(x, sigma)
+    return (s_plus - base) / eps_fd
+
+
+def _resolve_estimator_method(method: str, x: torch.Tensor) -> str:
+    """Resolve runtime Jacobian estimator method from policy token."""
+    method_now = str(method)
+    if method_now == "auto_fast":
+        # For very small and large tensors, finite differences typically
+        # outperform forward-mode JVP in wall-clock time.
+        flat_dim = int(x[0].numel())
+        if flat_dim <= 32 or flat_dim >= 128:
+            return "finite_diff"
+        return "jvp_vjp"
+    return method_now
 
 
 def jacobian_asymmetry_estimator(
@@ -60,7 +85,10 @@ def jacobian_asymmetry_estimator(
     sigma: torch.Tensor,
     num_probes: int = 1,
     method: str = "jvp_vjp",
+    variant: str = "skew_fro",
+    probe_dist: str = "gaussian",
     eps_fd: float = 1.0e-3,
+    return_per_sample: bool = False,
 ) -> torch.Tensor:
     """Estimate ``||J - J^T||_F^2`` with Hutchinson probing.
 
@@ -69,8 +97,14 @@ def jacobian_asymmetry_estimator(
         x: Batched noisy inputs.
         sigma: Per-sample sigma values ``[B]``.
         num_probes: Number of Gaussian probe vectors.
-        method: ``"jvp_vjp"``, ``"finite_diff"``, or ``"auto"``.
+        method: ``"jvp_vjp"``, ``"finite_diff"``, ``"auto"``, or ``"auto_fast"``.
+        variant: Energy definition token.
+            - ``"skew_fro"``: ``E||Jv - J^Tv||^2`` (default)
+            - ``"qcsbm_trace"``: ``E[||J^Tv||^2 - <Jv, J^Tv>]``
+              matching QCSBM code path.
+        probe_dist: Probe distribution, ``"gaussian"`` or ``"rademacher"``.
         eps_fd: Finite-difference epsilon for fallback mode.
+        return_per_sample: Return per-sample values when True.
 
     Returns:
         Scalar tensor estimating Jacobian asymmetry energy.
@@ -84,33 +118,48 @@ def jacobian_asymmetry_estimator(
     """
     probes = max(int(num_probes), 1)
     x_req = x.requires_grad_(True)
+    method_resolved = _resolve_estimator_method(method, x_req)
 
-    total = torch.zeros((), device=x_req.device, dtype=x_req.dtype)
+    # Reuse base score for all VJP probes to avoid repeated forward passes.
+    s = score_fn(x_req, sigma)
+    total = torch.zeros((x_req.shape[0],), device=x_req.device, dtype=x_req.dtype)
     for _ in range(probes):
-        # Gaussian probe used by Hutchinson estimator.
-        v = torch.randn_like(x_req)
+        # Hutchinson probe (Gaussian or Rademacher).
+        v = _sample_probe(x_req, probe_dist)
 
-        s = score_fn(x_req, sigma)
         jtv = torch.autograd.grad((s * v).sum(), x_req, create_graph=True, retain_graph=True)[0]
 
-        method_now = method
+        method_now = method_resolved
         if method_now not in {"jvp_vjp", "finite_diff", "auto"}:
             raise ValueError(f"unknown jacobian estimator method: {method_now}")
 
         if method_now == "finite_diff":
-            jv = _jvp_finite_difference(score_fn, x_req, sigma, v, eps_fd=eps_fd)
+            jv = _jvp_finite_difference(score_fn, x_req, sigma, v, eps_fd=eps_fd, s_base=s)
         else:
             try:
                 jv = _jvp_forward_mode(score_fn, x_req, sigma, v)
             except RuntimeError:
                 if method_now == "jvp_vjp":
                     raise
-                jv = _jvp_finite_difference(score_fn, x_req, sigma, v, eps_fd=eps_fd)
+                jv = _jvp_finite_difference(score_fn, x_req, sigma, v, eps_fd=eps_fd, s_base=s)
 
-        diff = jv - jtv
-        total = total + (_flatten_per_sample(diff) ** 2).sum(dim=1).mean()
+        if variant == "skew_fro":
+            diff = jv - jtv
+            contrib = (_flatten_per_sample(diff) ** 2).sum(dim=1)
+        elif variant in {"qcsbm", "qcsbm_trace"}:
+            flat_jtv = _flatten_per_sample(jtv)
+            flat_jv = _flatten_per_sample(jv)
+            trace_jjt = (flat_jtv**2).sum(dim=1)
+            trace_jj = (flat_jtv * flat_jv).sum(dim=1)
+            contrib = trace_jjt - trace_jj
+        else:
+            raise ValueError(f"unknown jacobian asymmetry variant: {variant}")
+        total = total + contrib
 
-    return total / float(probes)
+    per_sample = total / float(probes)
+    if return_per_sample:
+        return per_sample
+    return per_sample.mean()
 
 
 def low_noise_gate(sigma: torch.Tensor, sigma0: float) -> torch.Tensor:

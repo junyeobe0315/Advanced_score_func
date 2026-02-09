@@ -9,3 +9,9 @@ loss:
   mu_loop: 0.0
   mu1: 0.05
   mu2: 0.05
+  loop_subset: 16
+  cycle_subset: 16
+  cycle_samples: 16
+  loop_freq: 1
+  cycle_freq: 2
+  cycle_same_sigma: true

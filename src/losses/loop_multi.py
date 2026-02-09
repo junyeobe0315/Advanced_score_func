@@ -13,6 +13,19 @@ def _dot_per_sample(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return (a.flatten(start_dim=1) * b.flatten(start_dim=1)).sum(dim=1)
 
 
+def _dot_per_sample_stacked(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Compute per-sample inner products for tensors stacked by scale.
+
+    Args:
+        a: Tensor ``[S, B, ...]``.
+        b: Tensor ``[S, B, ...]``.
+
+    Returns:
+        Inner products with shape ``[S, B]``.
+    """
+    return (a.flatten(start_dim=2) * b.flatten(start_dim=2)).sum(dim=2)
+
+
 def random_unit_direction(x: torch.Tensor, sparse_ratio: float) -> torch.Tensor:
     """Sample normalized random directions with optional coordinate sparsity.
 
@@ -40,6 +53,7 @@ def rectangle_circulation(
     sigma: torch.Tensor,
     delta: float,
     sparse_ratio: float,
+    base_score: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Approximate loop circulation on small rectangles around each sample.
 
@@ -49,6 +63,7 @@ def rectangle_circulation(
         sigma: Per-sample sigma tensor.
         delta: Rectangle edge length.
         sparse_ratio: Active-coordinate ratio for random directions.
+        base_score: Optional cached score ``s(x, sigma)`` for anchor points.
 
     Returns:
         Per-sample loop circulation tensor ``[B]``.
@@ -65,7 +80,8 @@ def rectangle_circulation(
     x1 = x + float(delta) * u
     x3 = x + float(delta) * v
 
-    s0 = score_fn(x0, sigma)
+    # Reuse precomputed anchor score when available.
+    s0 = base_score if base_score is not None else score_fn(x0, sigma)
     s1 = score_fn(x1, sigma)
     s3 = score_fn(x3, sigma)
 
@@ -84,6 +100,7 @@ def loop_multi_scale_estimator(
     sigma: torch.Tensor,
     delta_set: Iterable[float],
     sparse_ratio: float = 1.0,
+    base_score: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[float, torch.Tensor]]:
     """Compute multi-scale loop energy regularizer for Jacobian-free M3.
 
@@ -93,6 +110,7 @@ def loop_multi_scale_estimator(
         sigma: Per-sample sigma tensor.
         delta_set: Collection of loop scales.
         sparse_ratio: Active-coordinate ratio for random directions.
+        base_score: Optional precomputed anchor score ``s(x, sigma)``.
 
     Returns:
         Tuple ``(mean_energy, per_scale)`` where ``per_scale`` maps each delta
@@ -104,17 +122,46 @@ def loop_multi_scale_estimator(
     """
     per_scale: dict[float, torch.Tensor] = {}
     values = []
-
-    for delta in delta_set:
-        d = float(delta)
-        circ = rectangle_circulation(score_fn, x=x, sigma=sigma, delta=d, sparse_ratio=sparse_ratio)
-        energy = (circ**2).mean()
-        per_scale[d] = energy
-        values.append(energy)
-
-    if not values:
+    deltas = [float(d) for d in delta_set]
+    if not deltas:
         zero = torch.zeros((), device=x.device, dtype=x.dtype)
         return zero, per_scale
+
+    # Shared anchor score reduces one model call per scale.
+    anchor_score = base_score if base_score is not None else score_fn(x, sigma)
+    num_scales = len(deltas)
+    batch = int(x.shape[0])
+
+    # Sample independent random directions per scale, then evaluate all
+    # perturbed points in two batched model calls (x+Δu and x+Δv).
+    u_stack = torch.stack([random_unit_direction(x, sparse_ratio=sparse_ratio) for _ in deltas], dim=0)
+    v_stack = torch.stack([random_unit_direction(x, sparse_ratio=sparse_ratio) for _ in deltas], dim=0)
+    delta_t = torch.tensor(deltas, device=x.device, dtype=x.dtype).view(num_scales, *([1] * x.ndim))
+
+    x_ref = x.unsqueeze(0)
+    x1 = x_ref + delta_t * u_stack
+    x3 = x_ref + delta_t * v_stack
+
+    sigma_rep = sigma.repeat(num_scales)
+    x1_flat = x1.reshape(num_scales * batch, *x.shape[1:])
+    x3_flat = x3.reshape(num_scales * batch, *x.shape[1:])
+    s1 = score_fn(x1_flat, sigma_rep).reshape(num_scales, batch, *x.shape[1:])
+    s3 = score_fn(x3_flat, sigma_rep).reshape(num_scales, batch, *x.shape[1:])
+
+    s0_stack = anchor_score.unsqueeze(0).expand(num_scales, *anchor_score.shape)
+    delta_scale = delta_t.reshape(num_scales, 1)
+    circ = (
+        delta_scale * _dot_per_sample_stacked(s0_stack, u_stack)
+        + delta_scale * _dot_per_sample_stacked(s1, v_stack)
+        - delta_scale * _dot_per_sample_stacked(s3, u_stack)
+        - delta_scale * _dot_per_sample_stacked(s0_stack, v_stack)
+    )
+    energies = (circ**2).mean(dim=1)
+
+    for i, d in enumerate(deltas):
+        energy = energies[i]
+        per_scale[d] = energy
+        values.append(energy)
 
     total = torch.stack(values).mean()
     return total, per_scale

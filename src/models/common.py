@@ -7,6 +7,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def _safe_group_count(channels: int, max_groups: int = 32) -> int:
+    """Return a GroupNorm group count that always divides channels."""
+    return max(1, math.gcd(int(channels), int(max_groups)))
+
+
 def sigma_embedding(sigma: torch.Tensor, dim: int) -> torch.Tensor:
     """Create sinusoidal embedding for continuous noise level ``sigma``.
 
@@ -94,8 +99,8 @@ class ResBlock2D(nn.Module):
             dropout: Dropout probability in second conv path.
         """
         super().__init__()
-        groups1 = min(32, in_ch)
-        groups2 = min(32, out_ch)
+        groups1 = _safe_group_count(in_ch)
+        groups2 = _safe_group_count(out_ch)
         self.norm1 = nn.GroupNorm(groups1, in_ch)
         self.conv1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1)
         self.temb_proj = nn.Linear(temb_ch, out_ch)
@@ -142,7 +147,7 @@ class SelfAttention2D(nn.Module):
             channels: Number of feature channels.
         """
         super().__init__()
-        groups = min(32, channels)
+        groups = _safe_group_count(channels)
         self.norm = nn.GroupNorm(groups, channels)
         self.q = nn.Conv1d(channels, channels, kernel_size=1)
         self.k = nn.Conv1d(channels, channels, kernel_size=1)
@@ -305,7 +310,7 @@ class UNetBackbone(nn.Module):
                 cur_res *= 2
             self.up.append(block)
 
-        self.out_norm = nn.GroupNorm(min(32, ch), ch)
+        self.out_norm = nn.GroupNorm(_safe_group_count(ch), ch)
         self.out_conv = nn.Conv2d(ch, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
