@@ -21,6 +21,94 @@ def checkpoint_path(run_dir: str | Path, step: int) -> Path:
     return path
 
 
+def named_checkpoint_path(run_dir: str | Path, name: str) -> Path:
+    """Build a named checkpoint path under ``run_dir/checkpoints``.
+
+    Args:
+        run_dir: Run directory path.
+        name: Filename stem without extension.
+
+    Returns:
+        Absolute checkpoint path.
+    """
+    safe_name = str(name).strip().replace("/", "_")
+    path = Path(run_dir) / "checkpoints" / f"{safe_name}.pt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def eval_checkpoint_path(run_dir: str | Path, step: int) -> Path:
+    """Build model-selection candidate checkpoint path for a training step."""
+    return named_checkpoint_path(run_dir, f"eval_step_{int(step):08d}")
+
+
+def _checkpoint_payload(
+    step: int,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    ema_state: dict[str, Any] | None,
+    scaler_state: dict[str, Any] | None,
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """Build serialized checkpoint payload."""
+    return {
+        "step": step,
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "ema": ema_state,
+        "scaler": scaler_state,
+        "config": cfg,
+    }
+
+
+def save_checkpoint_to_path(
+    path: str | Path,
+    step: int,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    ema_state: dict[str, Any] | None,
+    scaler_state: dict[str, Any] | None,
+    cfg: dict[str, Any],
+) -> Path:
+    """Serialize checkpoint payload to an explicit destination path."""
+    dst = Path(path)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        _checkpoint_payload(
+            step=step,
+            model=model,
+            optimizer=optimizer,
+            ema_state=ema_state,
+            scaler_state=scaler_state,
+            cfg=cfg,
+        ),
+        dst,
+    )
+    return dst
+
+
+def save_named_checkpoint(
+    run_dir: str | Path,
+    name: str,
+    step: int,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    ema_state: dict[str, Any] | None,
+    scaler_state: dict[str, Any] | None,
+    cfg: dict[str, Any],
+) -> Path:
+    """Serialize checkpoint payload using a custom filename stem."""
+    return save_checkpoint_to_path(
+        path=named_checkpoint_path(run_dir, name),
+        step=step,
+        model=model,
+        optimizer=optimizer,
+        ema_state=ema_state,
+        scaler_state=scaler_state,
+        cfg=cfg,
+    )
+
+
 def save_checkpoint(
     run_dir: str | Path,
     step: int,
@@ -44,18 +132,15 @@ def save_checkpoint(
     Returns:
         Path to written checkpoint file.
     """
-    path = checkpoint_path(run_dir, step)
-    # Keep all state needed for exact resume and reproducibility.
-    payload = {
-        "step": step,
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "ema": ema_state,
-        "scaler": scaler_state,
-        "config": cfg,
-    }
-    torch.save(payload, path)
-    return path
+    return save_checkpoint_to_path(
+        path=checkpoint_path(run_dir, step),
+        step=step,
+        model=model,
+        optimizer=optimizer,
+        ema_state=ema_state,
+        scaler_state=scaler_state,
+        cfg=cfg,
+    )
 
 
 def keep_last_checkpoints(run_dir: str | Path, keep_last_k: int) -> None:

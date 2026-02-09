@@ -10,13 +10,21 @@ from tqdm import tqdm
 from src.data import make_loader, unpack_batch
 from src.metrics import grad_norm_stats, model_has_nan_or_inf
 from src.models import build_model
-from src.utils.checkpoint import keep_last_checkpoints, save_checkpoint
+from src.utils.checkpoint import eval_checkpoint_path, keep_last_checkpoints, save_checkpoint, save_checkpoint_to_path
 from src.utils.config import config_hash, ensure_experiment_defaults, resolve_model_id, save_config
 from src.utils.csv_logger import CSVLogger
 from src.utils.ema import EMA
 from src.utils.feature_encoder import build_feature_encoder
 from src.utils.tb_logger import TBLogger
 
+from .model_selection import (
+    append_selection_history_csv,
+    evaluate_selection_score,
+    prune_eval_candidate_checkpoints,
+    save_selection_state,
+    score_to_record,
+    update_topk_records,
+)
 from .train_step_baseline import train_step_baseline
 from .train_step_m3 import train_step_m3
 from .train_step_m4 import train_step_m4
@@ -180,6 +188,15 @@ def train(cfg: dict, seed: int | None = None) -> Path:
 
     run_dir = make_run_dir(cfg, seed)
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Training currently starts from scratch (no resume path), so clear stale
+    # checkpoints from previous executions in the same run directory.
+    ckpt_dir = run_dir / "checkpoints"
+    if ckpt_dir.exists():
+        for pattern in ("step_*.pt", "eval_step_*.pt"):
+            for stale in ckpt_dir.glob(pattern):
+                stale.unlink(missing_ok=True)
+
     save_config(cfg, run_dir / "config_resolved.yaml")
 
     model = build_model(cfg).to(device)
@@ -198,6 +215,7 @@ def train(cfg: dict, seed: int | None = None) -> Path:
 
     loader = make_loader(cfg, train=True)
     data_iter = iter(loader)
+    steps_per_epoch = max(int(len(loader)), 1)
 
     feature_encoder: torch.nn.Module | None = None
     if model_id in {"M3", "M4"}:
@@ -211,8 +229,34 @@ def train(cfg: dict, seed: int | None = None) -> Path:
     accum_steps = int(cfg["train"].get("grad_accum_steps", 1))
     log_every = int(cfg["train"].get("log_every", 50))
     ckpt_every = int(cfg["train"].get("ckpt_every", 1000))
+    ckpt_every_epochs = cfg["train"].get("ckpt_every_epochs")
+    if ckpt_every_epochs is not None:
+        ckpt_every = max(1, int(round(float(ckpt_every_epochs) * float(steps_per_epoch))))
     keep_last_k = int(cfg["train"].get("keep_last_k", 3))
     clip_grad = float(cfg["train"].get("clip_grad_norm", 1.0))
+
+    dataset_name = str(cfg["dataset"]["name"]).lower()
+    supports_selection = dataset_name.startswith("toy") or dataset_name == "mnist" or dataset_name == "cifar10"
+    selection_enable = bool(cfg["train"].get("selection_enable", True)) and supports_selection
+    selection_eval_every = max(1, int(cfg["train"].get("selection_eval_every", 100)))
+    selection_top_k = max(1, int(cfg["train"].get("selection_top_k", 3)))
+    selection_nfe = max(1, int(cfg["train"].get("selection_eval_nfe", 100)))
+    selection_sampler = str(cfg["train"].get("selection_sampler", cfg.get("sampler", {}).get("main", "heun")))
+    selection_use_ema = bool(cfg["train"].get("selection_use_ema", True))
+    selection_num_samples = int(
+        cfg["train"].get(
+            "selection_eval_num_samples",
+            min(2048, int(cfg.get("eval", {}).get("num_fid_samples", 2048))),
+        )
+    )
+    selection_batch_size = int(cfg["train"].get("selection_eval_batch_size", cfg.get("eval", {}).get("batch_size", 64)))
+    topk_state_path = run_dir / "eval" / "selection_topk.json"
+    topk_history_path = run_dir / "eval" / "selection_history.csv"
+    topk_records: list[dict] = []
+    if selection_enable:
+        topk_state_path.unlink(missing_ok=True)
+        topk_history_path.unlink(missing_ok=True)
+        prune_eval_candidate_checkpoints(run_dir=run_dir, keep_steps=set())
 
     step_fn = _step_dispatch(model_id)
     progress = tqdm(range(1, total_steps + 1), desc=f"train/{cfg['dataset']['name']}/{model_id}")
@@ -299,6 +343,68 @@ def train(cfg: dict, seed: int | None = None) -> Path:
                 cfg=cfg,
             )
             keep_last_checkpoints(run_dir, keep_last_k=keep_last_k)
+
+        if selection_enable and (step % selection_eval_every == 0 or step == total_steps):
+            eval_model = ema.shadow if selection_use_ema else model
+            restore_mode = bool(eval_model.training)
+            eval_model.eval()
+            score = evaluate_selection_score(
+                cfg=cfg,
+                model=eval_model,
+                model_id=model_id,
+                device=device,
+                num_samples=selection_num_samples,
+                nfe=selection_nfe,
+                batch_size=selection_batch_size,
+                sampler_name=selection_sampler,
+            )
+            if restore_mode:
+                eval_model.train()
+
+            candidate_path = eval_checkpoint_path(run_dir=run_dir, step=step)
+            save_checkpoint_to_path(
+                path=candidate_path,
+                step=step,
+                model=model,
+                optimizer=optimizer,
+                ema_state=ema.state_dict(),
+                scaler_state=scaler.state_dict() if use_amp else None,
+                cfg=cfg,
+            )
+
+            record = score_to_record(step=step, checkpoint_name=candidate_path.name, score=score)
+            append_selection_history_csv(path=topk_history_path, row=record)
+            topk_records = update_topk_records(previous=topk_records, current=record, top_k=selection_top_k)
+            keep_steps = {int(item.get("step", -1)) for item in topk_records}
+            prune_eval_candidate_checkpoints(run_dir=run_dir, keep_steps=keep_steps)
+            save_selection_state(
+                path=topk_state_path,
+                payload={
+                    "topk": topk_records,
+                    "metric_policy": {
+                        "dataset": dataset_name,
+                        "toy": "maximize toy_logpdf, tie-break by lower mmd",
+                        "mnist_cifar10": "minimize fid",
+                    },
+                    "selection_config": {
+                        "selection_eval_every": selection_eval_every,
+                        "selection_top_k": selection_top_k,
+                        "selection_eval_nfe": selection_nfe,
+                        "selection_eval_num_samples": selection_num_samples,
+                        "selection_eval_batch_size": selection_batch_size,
+                        "selection_sampler": selection_sampler,
+                        "selection_use_ema": selection_use_ema,
+                    },
+                },
+            )
+            tb_logger.log_scalars(
+                {
+                    "selection/primary_score": float(score.primary_score),
+                    "selection/metric_value": float(score.metric_value),
+                    "selection/secondary_score": float(score.secondary_score),
+                },
+                step,
+            )
 
     tb_logger.close()
     return run_dir

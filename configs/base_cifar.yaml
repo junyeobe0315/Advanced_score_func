@@ -36,7 +36,16 @@ train:
   clip_grad_norm: 1.0
   log_every: 50
   ckpt_every: 10000
+  ckpt_every_epochs: 10
   keep_last_k: 3
+  selection_enable: true
+  selection_eval_every: 100
+  selection_top_k: 3
+  selection_eval_nfe: 100
+  selection_eval_num_samples: 2048
+  selection_eval_batch_size: 64
+  selection_sampler: heun
+  selection_use_ema: true
   seed: 0
 
 loss:
