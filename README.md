@@ -28,7 +28,7 @@ pip install -r requirements.txt
 
 ```bash
 python -m src.main_train --config configs/cifar10/m3.yaml --seed 0
-python -m src.main_eval --run_dir runs/cifar10/M3/seed0 --nfe_list 10,20,50,100,200
+python -m src.main_eval --run_dir runs/cifar10/M3/seed0 --nfe_list 8,18,32,64,128
 python -m src.main_sweep --sweep configs/toy/m1.yaml --seeds 0,1,2
 ```
 
@@ -40,6 +40,7 @@ runs/{dataset}/{model_id}/seed{n}/
 
 Artifacts per run:
 - `config_resolved.yaml`
+- `metrics.json`
 - `metrics.csv`
 - `tb/`
 - `checkpoints/step_*.pt`

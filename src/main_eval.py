@@ -19,6 +19,10 @@ from src.utils.checkpoint import latest_checkpoint, load_checkpoint
 from src.utils.config import ensure_experiment_defaults, resolve_model_id
 from src.utils.feature_encoder import build_feature_encoder
 
+DEFAULT_NFE_GRID = [8, 18, 32, 64, 128]
+DEFAULT_MAIN_SAMPLER = "heun"
+DEFAULT_COMPARE_SAMPLERS = ["euler"]
+
 
 def _read_cfg(run_dir: Path) -> dict:
     """Load resolved run config from run directory.
@@ -162,7 +166,7 @@ def main() -> None:
     loss_cfg = cfg["loss"]
     sampler_cfg = cfg.get("sampler", {})
 
-    default_nfe = [int(v) for v in sampler_cfg.get("nfe_list", [10, 20, 50, 100, 200])]
+    default_nfe = [int(v) for v in sampler_cfg.get("nfe_list", DEFAULT_NFE_GRID)]
     nfe_list = _parse_nfe_list(args.nfe_list, fallback=default_nfe)
 
     num_samples = int(eval_cfg.get("num_fid_samples", 10000))
@@ -174,8 +178,8 @@ def main() -> None:
     real = sample_real_data(cfg, num_samples=num_samples)
     shape_per_sample = tuple(real.shape[1:])
 
-    main_sampler = str(sampler_cfg.get("main", "heun"))
-    compare_samplers = [str(s) for s in sampler_cfg.get("compare", [])]
+    main_sampler = str(sampler_cfg.get("main", DEFAULT_MAIN_SAMPLER))
+    compare_samplers = [str(s) for s in sampler_cfg.get("compare", DEFAULT_COMPARE_SAMPLERS)]
     sampler_list = []
     for name in [main_sampler, *compare_samplers]:
         if name not in sampler_list:
@@ -320,6 +324,7 @@ def main() -> None:
             "compute_limited": bool(cfg.get("compute", {}).get("compute_limited", False)),
             "eval_num_samples": int(num_samples),
             "nfe_grid": nfe_list,
+            "sampler_grid": sampler_list,
         }
     )
 

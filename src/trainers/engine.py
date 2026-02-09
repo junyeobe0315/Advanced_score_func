@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
@@ -105,6 +107,23 @@ def make_run_dir(cfg: dict, seed: int) -> Path:
     model_id = resolve_model_id(cfg)
     root = Path(cfg.get("project", {}).get("run_root", "runs"))
     return root / dataset / model_id / f"seed{seed}"
+
+
+def _dataset_size(loader) -> int | None:
+    """Best-effort dataset cardinality extraction from DataLoader."""
+    dataset = getattr(loader, "dataset", None)
+    if dataset is None:
+        return None
+    try:
+        size = int(len(dataset))
+    except Exception:
+        return None
+    return size if size > 0 else None
+
+
+def _utc_iso(ts: float) -> str:
+    """Convert unix timestamp to UTC ISO-8601 string."""
+    return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
 
 
 def _step_dispatch(model_id: str):
@@ -235,7 +254,55 @@ def train(cfg: dict, seed: int | None = None) -> Path:
     keep_last_k = int(cfg["train"].get("keep_last_k", 3))
     clip_grad = float(cfg["train"].get("clip_grad_norm", 1.0))
 
-    dataset_name = str(cfg["dataset"]["name"]).lower()
+    dataset_name_raw = str(cfg["dataset"]["name"])
+    dataset_name = dataset_name_raw.lower()
+    micro_batch_size = int(cfg["dataset"]["batch_size"])
+    effective_batch_size = int(micro_batch_size * accum_steps)
+    n_seen_total = int(total_steps * effective_batch_size)
+    dataset_size = _dataset_size(loader)
+    approx_epochs_total = (float(n_seen_total) / float(dataset_size)) if dataset_size else None
+    train_start_wall_unix = time.time()
+    train_start_wall_utc = _utc_iso(train_start_wall_unix)
+    train_start_perf = time.perf_counter()
+
+    fairness_stats = {
+        "dataset": dataset_name_raw,
+        "model_id": model_id,
+        "batch_size": micro_batch_size,
+        "grad_accum_steps": accum_steps,
+        "effective_batch_size": effective_batch_size,
+        "total_steps": total_steps,
+        "n_seen_images": n_seen_total,
+        "dataset_size": dataset_size,
+        "approx_epochs": approx_epochs_total,
+        "wall_clock_start_unix": train_start_wall_unix,
+        "wall_clock_start_utc": train_start_wall_utc,
+    }
+    metrics_json_path = run_dir / "metrics.json"
+    with metrics_json_path.open("w", encoding="utf-8") as f:
+        json.dump(fairness_stats, f, indent=2)
+
+    approx_epochs_text = "n/a" if approx_epochs_total is None else f"{approx_epochs_total:.4f}"
+    print(
+        "[fairness] "
+        f"dataset={dataset_name_raw} model_id={model_id} "
+        f"batch_size={micro_batch_size} grad_accum_steps={accum_steps} "
+        f"B_eff={effective_batch_size} total_steps={total_steps} "
+        f"N_seen={n_seen_total} approx_epochs={approx_epochs_text} "
+        f"wall_clock_start_utc={train_start_wall_utc}"
+    )
+    tb_logger.log_scalars(
+        {
+            "fairness/batch_size": float(micro_batch_size),
+            "fairness/grad_accum_steps": float(accum_steps),
+            "fairness/effective_batch_size": float(effective_batch_size),
+            "fairness/total_steps": float(total_steps),
+            "fairness/n_seen_images": float(n_seen_total),
+            "fairness/approx_epochs": float(approx_epochs_total) if approx_epochs_total is not None else float("nan"),
+        },
+        step=0,
+    )
+
     supports_selection = dataset_name.startswith("toy") or dataset_name == "mnist" or dataset_name == "cifar10"
     selection_enable = bool(cfg["train"].get("selection_enable", True)) and supports_selection
     selection_eval_every = max(1, int(cfg["train"].get("selection_eval_every", 100)))
@@ -307,6 +374,8 @@ def train(cfg: dict, seed: int | None = None) -> Path:
         imgs_per_sec = float(x0.shape[0] / max(step_time_ms, 1e-6) * 1000.0)
 
         # Unified scalar row consumed by CSV and TensorBoard loggers.
+        n_seen_at_step = int(step * effective_batch_size)
+        approx_epochs_at_step = (float(n_seen_at_step) / float(dataset_size)) if dataset_size else float("nan")
         row = {
             "step": step,
             "loss_total": float(loss_metrics.get("loss_total", 0.0)),
@@ -321,6 +390,11 @@ def train(cfg: dict, seed: int | None = None) -> Path:
             "nan_count": nan_count,
             "step_time_ms": step_time_ms,
             "imgs_per_sec": imgs_per_sec,
+            "batch_size": micro_batch_size,
+            "grad_accum_steps": accum_steps,
+            "effective_batch_size": effective_batch_size,
+            "n_seen_images": n_seen_at_step,
+            "approx_epochs": approx_epochs_at_step,
         }
         if device.type == "cuda":
             row["vram_peak_mb"] = float(torch.cuda.max_memory_allocated(device) / (1024**2))
@@ -405,6 +479,19 @@ def train(cfg: dict, seed: int | None = None) -> Path:
                 },
                 step,
             )
+
+    train_end_wall_unix = time.time()
+    train_elapsed_sec = float(time.perf_counter() - train_start_perf)
+    fairness_stats.update(
+        {
+            "wall_clock_end_unix": train_end_wall_unix,
+            "wall_clock_end_utc": _utc_iso(train_end_wall_unix),
+            "wall_clock_elapsed_sec": train_elapsed_sec,
+            "approx_gpu_hours_wall_clock": float(train_elapsed_sec / 3600.0),
+        }
+    )
+    with metrics_json_path.open("w", encoding="utf-8") as f:
+        json.dump(fairness_stats, f, indent=2)
 
     tb_logger.close()
     return run_dir

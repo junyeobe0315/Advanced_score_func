@@ -9,7 +9,7 @@ def parse_args() -> argparse.Namespace:
     """Parse arguments for repeated evaluation with multiple NFE grids."""
     parser = argparse.ArgumentParser(description="Run evaluation with custom NFE sweep")
     parser.add_argument("--run_dir", required=True, type=str)
-    parser.add_argument("--nfe_list", default="10,20,50,100,200", type=str)
+    parser.add_argument("--nfe_list", default="8,18,32,64,128", type=str)
     parser.add_argument("--checkpoint", default=None, type=str)
     return parser.parse_args()
 

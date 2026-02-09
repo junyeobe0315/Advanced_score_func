@@ -70,7 +70,7 @@ loss:
 sampler:
   main: heun
   compare: [euler]
-  nfe_list: [10, 20, 50, 100, 200]
+  nfe_list: [8, 18, 32, 64, 128]
 
 eval:
   batch_size: 128

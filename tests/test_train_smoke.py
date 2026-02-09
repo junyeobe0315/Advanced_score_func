@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -58,6 +59,22 @@ def test_train_smoke_for_all_models(tmp_path: Path) -> None:
 
         assert run_dir.exists()
         assert (run_dir / "config_resolved.yaml").exists()
+        metrics_json = run_dir / "metrics.json"
+        assert metrics_json.exists()
+        with metrics_json.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+        for key in (
+            "dataset",
+            "model_id",
+            "batch_size",
+            "grad_accum_steps",
+            "effective_batch_size",
+            "total_steps",
+            "n_seen_images",
+            "approx_epochs",
+            "wall_clock_start_utc",
+        ):
+            assert key in payload
         assert (run_dir / "metrics.csv").exists()
         ckpts = list((run_dir / "checkpoints").glob("step_*.pt"))
         assert len(ckpts) >= 1
