@@ -49,15 +49,22 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def write_table(path: Path, rows: list[dict]) -> None:
-    """Write rows to CSV, creating parent directory automatically."""
+def write_table(path: Path, rows: list[dict], fieldnames: list[str] | None = None) -> None:
+    """Write rows to CSV, creating parent directory automatically.
+
+    When ``rows`` is empty, this still writes a header-only file if explicit
+    ``fieldnames`` are provided. This keeps report artifacts predictable for
+    downstream automation.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not rows:
-        return
+    cols = list(fieldnames) if fieldnames is not None else (list(rows[0].keys()) if rows else [])
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        if not cols:
+            return
+        writer = csv.DictWriter(f, fieldnames=cols)
         writer.writeheader()
-        writer.writerows(rows)
+        if rows:
+            writer.writerows(rows)
 
 
 def _collect_fid_rows(run_root: Path) -> list[dict]:
@@ -386,12 +393,74 @@ def main() -> None:
     budget_path = out_dir / "compute_budget_by_dataset.csv"
     compute_matched_path = out_dir / "compute_matched_fid.csv"
 
-    write_table(fid_path, fid_summary)
-    write_table(integ_path, integ_summary)
-    write_table(steps_raw_path, steps_raw)
-    write_table(steps_summary_path, steps_summary)
-    write_table(budget_path, compute_budget_rows)
-    write_table(compute_matched_path, compute_matched_rows)
+    write_table(
+        fid_path,
+        fid_summary,
+        fieldnames=["dataset", "model_id", "sampler", "nfe", "fid_mean", "fid_std", "num_seeds"],
+    )
+    write_table(
+        integ_path,
+        integ_summary,
+        fieldnames=[
+            "dataset",
+            "model_id",
+            "sigma_bin",
+            "metric_name",
+            "scale_delta",
+            "cycle_len",
+            "value_mean",
+            "value_std",
+            "num_points",
+        ],
+    )
+    write_table(
+        steps_raw_path,
+        steps_raw,
+        fieldnames=[
+            "dataset",
+            "model_id",
+            "seed",
+            "sampler",
+            "target_fid",
+            "steps_to_target_fid",
+            "fid_at_target_step",
+            "latency_sec_at_target_step",
+        ],
+    )
+    write_table(
+        steps_summary_path,
+        steps_summary,
+        fieldnames=[
+            "dataset",
+            "model_id",
+            "sampler",
+            "target_fid",
+            "steps_to_target_fid_mean",
+            "steps_to_target_fid_std",
+            "num_success",
+        ],
+    )
+    write_table(
+        budget_path,
+        compute_budget_rows,
+        fieldnames=["dataset", "model_id", "model_mean_gpu_hours", "shared_budget_gpu_hours"],
+    )
+    write_table(
+        compute_matched_path,
+        compute_matched_rows,
+        fieldnames=[
+            "dataset",
+            "model_id",
+            "sampler",
+            "nfe",
+            "shared_budget_gpu_hours",
+            "selection_mode",
+            "selected_run_count",
+            "selected_gpu_hours_mean",
+            "fid_mean",
+            "fid_std",
+        ],
+    )
 
     print(str(fid_path))
     print(str(integ_path))
