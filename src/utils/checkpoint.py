@@ -158,6 +158,97 @@ def keep_last_checkpoints(run_dir: str | Path, keep_last_k: int) -> None:
         old.unlink(missing_ok=True)
 
 
+def _extract_step(path: Path, prefix: str) -> int | None:
+    """Extract integer step suffix from checkpoint stem.
+
+    Args:
+        path: Checkpoint file path.
+        prefix: Expected filename stem prefix, e.g. ``step_``.
+
+    Returns:
+        Parsed step integer or ``None`` when the filename does not match.
+    """
+    stem = path.stem
+    if not stem.startswith(prefix):
+        return None
+    token = stem.rsplit("_", 1)[-1]
+    try:
+        return int(token)
+    except ValueError:
+        return None
+
+
+def prune_checkpoints_after_training(
+    run_dir: str | Path,
+    keep_eval_steps: set[int] | None,
+    keep_last_k: int = 1,
+) -> dict[str, int]:
+    """Prune checkpoints once after training completes.
+
+    Policy:
+    - Keep latest ``step_*.pt`` checkpoints (``keep_last_k``).
+    - Keep checkpoints whose step is in ``keep_eval_steps``.
+    - Remove all other ``step_*.pt`` and ``eval_step_*.pt`` files.
+
+    Args:
+        run_dir: Run directory path.
+        keep_eval_steps: Top-k selection steps to preserve.
+        keep_last_k: Number of latest step checkpoints to preserve.
+
+    Returns:
+        Summary dictionary with kept/deleted counts.
+    """
+    ckpt_dir = Path(run_dir) / "checkpoints"
+    if not ckpt_dir.exists():
+        return {
+            "kept_step": 0,
+            "deleted_step": 0,
+            "kept_eval": 0,
+            "deleted_eval": 0,
+        }
+
+    keep_last_k = max(1, int(keep_last_k))
+    topk_steps = {int(s) for s in (keep_eval_steps or set()) if int(s) >= 0}
+
+    step_paths = sorted(ckpt_dir.glob("step_*.pt"))
+    latest_steps: set[int] = set()
+    for path in step_paths[-keep_last_k:]:
+        step = _extract_step(path, prefix="step_")
+        if step is not None:
+            latest_steps.add(step)
+
+    keep_steps = set(topk_steps)
+    keep_steps.update(latest_steps)
+
+    kept_step = 0
+    deleted_step = 0
+    for path in step_paths:
+        step = _extract_step(path, prefix="step_")
+        if step is not None and step in keep_steps:
+            kept_step += 1
+            continue
+        path.unlink(missing_ok=True)
+        deleted_step += 1
+
+    kept_eval = 0
+    deleted_eval = 0
+    eval_keep_steps = set(keep_steps)
+    for path in ckpt_dir.glob("eval_step_*.pt"):
+        step = _extract_step(path, prefix="eval_step_")
+        if step is not None and step in eval_keep_steps:
+            kept_eval += 1
+            continue
+        path.unlink(missing_ok=True)
+        deleted_eval += 1
+
+    return {
+        "kept_step": kept_step,
+        "deleted_step": deleted_step,
+        "kept_eval": kept_eval,
+        "deleted_eval": deleted_eval,
+    }
+
+
 def latest_checkpoint(run_dir: str | Path) -> Path | None:
     """Return latest checkpoint file in run directory.
 
@@ -184,4 +275,11 @@ def load_checkpoint(path: str | Path, map_location: str = "cpu") -> dict[str, An
     Returns:
         Deserialized checkpoint dictionary.
     """
-    return torch.load(Path(path), map_location=map_location)
+    ckpt_path = Path(path)
+    try:
+        # Pass explicit flag to avoid the PyTorch FutureWarning about the
+        # default `weights_only` value changing in future releases.
+        return torch.load(ckpt_path, map_location=map_location, weights_only=False)
+    except TypeError:
+        # Backward compatibility for older torch versions without this arg.
+        return torch.load(ckpt_path, map_location=map_location)

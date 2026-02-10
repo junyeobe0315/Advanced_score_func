@@ -36,8 +36,6 @@ model_presets:
     model:
       variant: struct
       type: mlp_potential
-      hidden_dim: 128
-      depth: 2
     loss:
       lambda_sym: 0.0
       mu_loop: 0.0
@@ -73,7 +71,6 @@ model_presets:
       hybrid:
         high_type: mlp
         low_type: mlp_potential
-        low_hidden_dim: 128
     loss:
       alpha: 0.012
       beta: 0.006

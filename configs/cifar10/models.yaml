@@ -36,7 +36,6 @@ model_presets:
     model:
       variant: struct
       type: potential_unet
-      base_channels: 48
     loss:
       lambda_sym: 0.0
       mu_loop: 0.0
@@ -72,7 +71,6 @@ model_presets:
       hybrid:
         high_type: unet
         low_type: potential_unet
-        low_base_channels: 48
     loss:
       alpha: 0.012
       beta: 0.006

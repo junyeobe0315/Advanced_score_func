@@ -4,7 +4,7 @@ project:
 dataset:
   name: toy
   data_root: data
-  batch_size: 1024
+  batch_size: 16
   num_workers: 0
   pin_memory: false
   image_size: null
@@ -13,8 +13,8 @@ dataset:
     kind: gmm
     dim: 2
     n_modes: 8
-    radius: 4.0
-    std: 0.35
+    radius: 1.0
+    std: 0.1
     layout_seed: 0
     angle_offset: 0.0
     angle_jitter: 0.0
@@ -29,9 +29,9 @@ dataset:
 model:
   variant: baseline
   type: mlp
-  hidden_dim: 128
+  hidden_dim: 32
   depth: 2
-  sigma_embed_dim: 48
+  sigma_embed_dim: 16
   channels: 1
   preconditioning:
     type: edm
@@ -41,7 +41,7 @@ model:
     high_type: mlp
     low_type: mlp_potential
 train:
-  total_steps: 30000
+  total_steps: 10000
   grad_accum_steps: 1
   amp: false
   lr: 0.0001
@@ -52,14 +52,14 @@ train:
   ema_decay: 0.999
   clip_grad_norm: 1.0
   log_every: 100
-  ckpt_every_steps: 1000
+  ckpt_every_steps: 100
   keep_last_k: 3
   selection_enable: true
   selection_eval_every: 500
   selection_top_k: 3
   selection_eval_nfe: 32
   selection_eval_num_samples: 2048
-  selection_eval_batch_size: 1024
+  selection_eval_batch_size: 512
   selection_sampler: heun
   selection_use_ema: true
   seed: 0

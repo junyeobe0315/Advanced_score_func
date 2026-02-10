@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +13,7 @@ from tqdm import tqdm
 from src.data import make_loader, unpack_batch
 from src.metrics import grad_norm_stats, model_has_nan_or_inf
 from src.models import build_model
-from src.utils.checkpoint import eval_checkpoint_path, keep_last_checkpoints, save_checkpoint, save_checkpoint_to_path
+from src.utils.checkpoint import load_checkpoint, prune_checkpoints_after_training, save_checkpoint
 from src.utils.config import config_hash, ensure_experiment_defaults, resolve_model_id, save_config
 from src.utils.csv_logger import CSVLogger
 from src.utils.ema import EMA
@@ -22,7 +23,6 @@ from src.utils.tb_logger import TBLogger
 from .model_selection import (
     append_selection_history_csv,
     evaluate_selection_score,
-    prune_eval_candidate_checkpoints,
     save_selection_state,
     score_to_record,
     update_topk_records,
@@ -124,6 +124,18 @@ def _dataset_size(loader) -> int | None:
 def _utc_iso(ts: float) -> str:
     """Convert unix timestamp to UTC ISO-8601 string."""
     return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+
+
+def _step_from_ckpt_path(path: Path) -> int | None:
+    """Parse integer step from ``step_XXXXXXXX.pt`` checkpoint path."""
+    stem = path.stem
+    if not stem.startswith("step_"):
+        return None
+    token = stem.rsplit("_", 1)[-1]
+    try:
+        return int(token)
+    except ValueError:
+        return None
 
 
 def _step_dispatch(model_id: str):
@@ -248,7 +260,9 @@ def train(cfg: dict, seed: int | None = None) -> Path:
     log_every = int(cfg["train"].get("log_every", 50))
     ckpt_every_steps = int(cfg["train"].get("ckpt_every_steps", cfg["train"].get("ckpt_every", 1000)))
     ckpt_every_steps = max(1, ckpt_every_steps)
-    keep_last_k = int(cfg["train"].get("keep_last_k", 3))
+    # Retention policy requested by experiment workflow: keep only the final
+    # step checkpoint (+ top-k selection candidates) after training ends.
+    keep_last_k = 1
     clip_grad = float(cfg["train"].get("clip_grad_norm", 1.0))
 
     dataset_name_raw = str(cfg["dataset"]["name"])
@@ -302,6 +316,8 @@ def train(cfg: dict, seed: int | None = None) -> Path:
 
     supports_selection = dataset_name.startswith("toy") or dataset_name == "mnist" or dataset_name == "cifar10"
     selection_enable = bool(cfg["train"].get("selection_enable", True)) and supports_selection
+    # Post-train ranking now evaluates every saved step checkpoint. Keep the
+    # legacy field for metadata/compatibility in selection state files.
     selection_eval_every = max(1, int(cfg["train"].get("selection_eval_every", 100)))
     selection_top_k = max(1, int(cfg["train"].get("selection_top_k", 3)))
     selection_nfe = max(1, int(cfg["train"].get("selection_eval_nfe", 100)))
@@ -317,10 +333,11 @@ def train(cfg: dict, seed: int | None = None) -> Path:
     topk_state_path = run_dir / "eval" / "selection_topk.json"
     topk_history_path = run_dir / "eval" / "selection_history.csv"
     topk_records: list[dict] = []
+    selection_eval_count = 0
+    selection_elapsed_sec = 0.0
     if selection_enable:
         topk_state_path.unlink(missing_ok=True)
         topk_history_path.unlink(missing_ok=True)
-        prune_eval_candidate_checkpoints(run_dir=run_dir, keep_steps=set())
 
     step_fn = _step_dispatch(model_id)
     progress = tqdm(range(1, total_steps + 1), desc=f"train/{cfg['dataset']['name']}/{model_id}")
@@ -413,69 +430,94 @@ def train(cfg: dict, seed: int | None = None) -> Path:
                 scaler_state=scaler.state_dict() if use_amp else None,
                 cfg=cfg,
             )
-            keep_last_checkpoints(run_dir, keep_last_k=keep_last_k)
 
-        if selection_enable and (step % selection_eval_every == 0 or step == total_steps):
-            eval_model = ema.shadow if selection_use_ema else model
-            restore_mode = bool(eval_model.training)
-            eval_model.eval()
-            score = evaluate_selection_score(
-                cfg=cfg,
-                model=eval_model,
-                model_id=model_id,
-                device=device,
-                num_samples=selection_num_samples,
-                nfe=selection_nfe,
-                batch_size=selection_batch_size,
-                sampler_name=selection_sampler,
+    if selection_enable:
+        candidate_ckpts = sorted((run_dir / "checkpoints").glob("step_*.pt"))
+
+        if candidate_ckpts:
+            eval_bar = tqdm(
+                candidate_ckpts,
+                desc=f"select/{cfg['dataset']['name']}/{model_id}",
+                unit="ckpt",
             )
-            if restore_mode:
-                eval_model.train()
+            t0_selection = time.perf_counter()
+            for ckpt_path in eval_bar:
+                step = _step_from_ckpt_path(ckpt_path)
+                if step is None:
+                    continue
+                payload = load_checkpoint(ckpt_path, map_location=str(device))
+                model.load_state_dict(payload["model"], strict=True)
+                if selection_use_ema:
+                    ema_payload = payload.get("ema")
+                    if isinstance(ema_payload, dict):
+                        shadow = ema_payload.get("shadow")
+                        if isinstance(shadow, dict):
+                            model.load_state_dict(shadow, strict=False)
 
-            candidate_path = eval_checkpoint_path(run_dir=run_dir, step=step)
-            save_checkpoint_to_path(
-                path=candidate_path,
-                step=step,
-                model=model,
-                optimizer=optimizer,
-                ema_state=ema.state_dict(),
-                scaler_state=scaler.state_dict() if use_amp else None,
-                cfg=cfg,
-            )
-
-            record = score_to_record(step=step, checkpoint_name=candidate_path.name, score=score)
-            append_selection_history_csv(path=topk_history_path, row=record)
-            topk_records = update_topk_records(previous=topk_records, current=record, top_k=selection_top_k)
-            keep_steps = {int(item.get("step", -1)) for item in topk_records}
-            prune_eval_candidate_checkpoints(run_dir=run_dir, keep_steps=keep_steps)
-            save_selection_state(
-                path=topk_state_path,
-                payload={
-                    "topk": topk_records,
-                    "metric_policy": {
-                        "dataset": dataset_name,
-                        "toy": "maximize toy_logpdf, tie-break by lower mmd",
-                        "mnist_cifar10": "minimize fid",
+                model.eval()
+                score = evaluate_selection_score(
+                    cfg=cfg,
+                    model=model,
+                    model_id=model_id,
+                    device=device,
+                    num_samples=selection_num_samples,
+                    nfe=selection_nfe,
+                    batch_size=selection_batch_size,
+                    sampler_name=selection_sampler,
+                )
+                selection_eval_count += 1
+                record = score_to_record(step=step, checkpoint_name=ckpt_path.name, score=score)
+                append_selection_history_csv(path=topk_history_path, row=record)
+                topk_records = update_topk_records(previous=topk_records, current=record, top_k=selection_top_k)
+                tb_logger.log_scalars(
+                    {
+                        "selection/primary_score": float(score.primary_score),
+                        "selection/metric_value": float(score.metric_value),
+                        "selection/secondary_score": float(score.secondary_score),
                     },
-                    "selection_config": {
-                        "selection_eval_every": selection_eval_every,
-                        "selection_top_k": selection_top_k,
-                        "selection_eval_nfe": selection_nfe,
-                        "selection_eval_num_samples": selection_num_samples,
-                        "selection_eval_batch_size": selection_batch_size,
-                        "selection_sampler": selection_sampler,
-                        "selection_use_ema": selection_use_ema,
-                    },
+                    step,
+                )
+                metric_val = float(score.metric_value)
+                metric_text = "nan" if not math.isfinite(metric_val) else f"{metric_val:.4f}"
+                eval_bar.set_postfix({"step": step, "metric": metric_text})
+            selection_elapsed_sec = float(time.perf_counter() - t0_selection)
+
+        save_selection_state(
+            path=topk_state_path,
+            payload={
+                "topk": topk_records,
+                "metric_policy": {
+                    "dataset": dataset_name,
+                    "toy": "maximize toy_logpdf, tie-break by lower mmd",
+                    "mnist_cifar10": "minimize fid",
                 },
-            )
-            tb_logger.log_scalars(
-                {
-                    "selection/primary_score": float(score.primary_score),
-                    "selection/metric_value": float(score.metric_value),
-                    "selection/secondary_score": float(score.secondary_score),
+                "selection_config": {
+                    "selection_eval_every": selection_eval_every,
+                    "selection_top_k": selection_top_k,
+                    "selection_eval_nfe": selection_nfe,
+                    "selection_eval_num_samples": selection_num_samples,
+                    "selection_eval_batch_size": selection_batch_size,
+                    "selection_sampler": selection_sampler,
+                    "selection_use_ema": selection_use_ema,
                 },
-                step,
-            )
+                "selection_runtime": {
+                    "evaluated_checkpoints": int(selection_eval_count),
+                    "elapsed_sec": float(selection_elapsed_sec),
+                },
+            },
+        )
+
+    keep_steps = {int(item.get("step", -1)) for item in topk_records if int(item.get("step", -1)) >= 0}
+    retention = prune_checkpoints_after_training(
+        run_dir=run_dir,
+        keep_eval_steps=keep_steps,
+        keep_last_k=keep_last_k,
+    )
+    print(
+        "[checkpoint_retention] "
+        f"kept_step={retention['kept_step']} deleted_step={retention['deleted_step']} "
+        f"kept_eval={retention['kept_eval']} deleted_eval={retention['deleted_eval']}"
+    )
 
     train_end_wall_unix = time.time()
     train_elapsed_sec = float(time.perf_counter() - train_start_perf)
@@ -485,6 +527,12 @@ def train(cfg: dict, seed: int | None = None) -> Path:
             "wall_clock_end_utc": _utc_iso(train_end_wall_unix),
             "wall_clock_elapsed_sec": train_elapsed_sec,
             "approx_gpu_hours_wall_clock": float(train_elapsed_sec / 3600.0),
+            "selection_post_eval": {
+                "enabled": bool(selection_enable),
+                "evaluated_checkpoints": int(selection_eval_count),
+                "elapsed_sec": float(selection_elapsed_sec),
+            },
+            "checkpoint_retention": retention,
         }
     )
     with metrics_json_path.open("w", encoding="utf-8") as f:
