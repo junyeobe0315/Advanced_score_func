@@ -1,9 +1,0 @@
-base_config: base_toy.yaml
-model:
-  variant: reg
-  type: mlp
-loss:
-  lambda_sym: 0.1
-  mu_loop: 0.1
-  reg_k: 2
-  reg_freq: 1

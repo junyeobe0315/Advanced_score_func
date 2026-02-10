@@ -86,30 +86,92 @@ def load_config(path: str | Path) -> dict[str, Any]:
     Returns:
         Fully resolved config dictionary.
     """
-    return _load_with_base(Path(path).resolve(), visited=set())
+    return _load_with_base(Path(path).resolve(), stack=set())
 
 
-def _load_with_base(path: Path, visited: set[Path]) -> dict[str, Any]:
+def _normalize_model_key(model: str) -> str:
+    """Normalize user-facing model selector to ``m0..m4`` token."""
+    token = str(model).strip().lower()
+    if not token:
+        raise ConfigError("empty model key")
+    if token.startswith("m") and len(token) == 2 and token[1].isdigit():
+        idx = int(token[1])
+        if idx in {0, 1, 2, 3, 4}:
+            return f"m{idx}"
+    if token in {"baseline", "reg", "struct"}:
+        legacy_map = {"baseline": "m0", "reg": "m1", "struct": "m2"}
+        return legacy_map[token]
+    upper = token.upper()
+    if upper in {"M0", "M1", "M2", "M3", "M4"}:
+        return upper.lower()
+    raise ConfigError(f"invalid model key: {model}")
+
+
+def load_config_with_model(
+    config_path: str | Path,
+    model: str | None,
+    models_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Load dataset config and optionally apply one model preset overlay.
+
+    Args:
+        config_path: Dataset-level config path.
+        model: Optional model key (e.g. ``m0``..``m4``).
+        models_path: Optional explicit path to model-presets YAML.
+
+    Returns:
+        Resolved config dictionary with selected model overlay applied.
+    """
+    cfg = load_config(config_path)
+    if model is None:
+        return cfg
+
+    model_key = _normalize_model_key(model)
+    if models_path is None:
+        models_path = Path(config_path).resolve().parent / "models.yaml"
+    models_cfg = load_config(models_path)
+
+    presets = models_cfg.get("model_presets", models_cfg)
+    if not isinstance(presets, dict):
+        raise ConfigError(f"model_presets must be a mapping: {models_path}")
+
+    preset = presets.get(model_key)
+    if preset is None:
+        preset = presets.get(model_key.upper())
+    if preset is None:
+        available = sorted(str(k) for k in presets.keys())
+        raise ConfigError(f"model preset not found: {model_key} (available: {available})")
+    if not isinstance(preset, dict):
+        raise ConfigError(f"model preset must be a mapping: {model_key}")
+
+    return _deep_merge(cfg, preset)
+
+
+def _load_with_base(path: Path, stack: set[Path]) -> dict[str, Any]:
     """Internal recursive loader for ``base_config`` hierarchy.
 
     Args:
         path: Current config file path.
-        visited: Set used for cycle detection.
+        stack: Active recursion stack used for cycle detection.
 
     Returns:
         Resolved config dictionary at current node.
     """
-    if path in visited:
+    if path in stack:
         raise ConfigError(f"cyclic base_config reference detected at: {path}")
-    visited.add(path)
-    current = _load_yaml(path)
+    stack.add(path)
+    try:
+        current = _load_yaml(path)
 
-    base_ref = current.get("base_config")
-    if base_ref:
+        base_ref = current.get("base_config")
+        if not base_ref:
+            return current
+
         base_path = _resolve_path(path, str(base_ref))
-        base_cfg = _load_with_base(base_path, visited)
+        base_cfg = _load_with_base(base_path, stack)
         return _deep_merge(base_cfg, current)
-    return current
+    finally:
+        stack.remove(path)
 
 
 def save_config(cfg: dict[str, Any], path: str | Path) -> None:

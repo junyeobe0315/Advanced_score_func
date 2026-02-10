@@ -6,18 +6,18 @@ import sys
 from pathlib import Path
 
 from src.trainers import train
-from src.utils.config import load_config
+from src.utils.config import load_config_with_model
 from src.utils.seed import seed_everything
 
 
 def test_main_eval_writes_extended_integrability_schema(tmp_path: Path) -> None:
     """Evaluation output should include long-format integrability columns."""
     repo_root = Path(__file__).resolve().parents[1]
-    cfg = load_config(str(repo_root / "configs" / "toy" / "m0.yaml"))
+    cfg = load_config_with_model(str(repo_root / "configs" / "toy" / "dataset.yaml"), model="m0")
 
     cfg["project"]["run_root"] = str(tmp_path / "runs")
     cfg["train"]["total_steps"] = 4
-    cfg["train"]["ckpt_every"] = 4
+    cfg["train"]["ckpt_every_steps"] = 4
     cfg["train"]["log_every"] = 1
     cfg["dataset"]["batch_size"] = 64
     cfg["eval"]["num_fid_samples"] = 128

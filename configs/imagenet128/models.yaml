@@ -1,0 +1,81 @@
+model_presets:
+  m0:
+    experiment:
+      model_id: M0
+    model:
+      variant: baseline
+      type: unet
+    loss:
+      lambda_sym: 0.0
+      mu_loop: 0.0
+      mu1: 0.0
+      mu2: 0.0
+      alpha: 0.0
+      beta: 0.0
+
+  m1:
+    experiment:
+      model_id: M1
+    model:
+      variant: reg
+      type: unet
+    loss:
+      lambda_sym: 0.03
+      mu_loop: 0.0
+      reg_k: 1
+      reg_freq: 4
+
+  m2:
+    experiment:
+      model_id: M2
+    model:
+      variant: struct
+      type: potential_unet
+      base_channels: 40
+    loss:
+      lambda_sym: 0.0
+      mu_loop: 0.0
+      mu1: 0.0
+      mu2: 0.0
+
+  m3:
+    experiment:
+      model_id: M3
+    model:
+      variant: baseline
+      type: unet
+    loss:
+      lambda_sym: 0.0
+      mu_loop: 0.0
+      mu1: 0.012
+      mu2: 0.003
+      loop_subset: 8
+      cycle_subset: 8
+      cycle_samples: 8
+      cycle_knn_k: 4
+      reg_freq: 4
+      loop_freq: 4
+      cycle_freq: 16
+      cycle_same_sigma: true
+
+  m4:
+    experiment:
+      model_id: M4
+    model:
+      variant: baseline
+      type: unet
+      hybrid:
+        high_type: unet
+        low_type: potential_unet
+        low_base_channels: 40
+    loss:
+      alpha: 0.012
+      beta: 0.006
+      mu2: 0.0
+      boundary_subset: 8
+      cycle_subset: 4
+      cycle_samples: 4
+      reg_freq: 4
+      match_freq: 4
+      cycle_freq: 16
+      cycle_same_sigma: true

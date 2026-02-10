@@ -1,9 +1,0 @@
-base_config: base_mnist.yaml
-model:
-  variant: reg
-  type: unet
-loss:
-  lambda_sym: 0.05
-  mu_loop: 0.05
-  reg_k: 1
-  reg_freq: 1

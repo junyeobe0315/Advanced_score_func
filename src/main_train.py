@@ -4,7 +4,12 @@ import argparse
 import yaml
 
 from src.trainers import train
-from src.utils.config import apply_overrides, ensure_experiment_defaults, ensure_required_sections, load_config
+from src.utils.config import (
+    apply_overrides,
+    ensure_experiment_defaults,
+    ensure_required_sections,
+    load_config_with_model,
+)
 from src.utils.seed import seed_everything
 
 
@@ -16,6 +21,8 @@ def parse_args() -> argparse.Namespace:
     """
     p = argparse.ArgumentParser(description="Train score model variants")
     p.add_argument("--config", type=str, required=True)
+    p.add_argument("--model", type=str, default=None, help="Model preset key (m0..m4)")
+    p.add_argument("--models_config", type=str, default=None, help="Optional model-presets YAML path")
     p.add_argument("--seed", type=int, default=None)
     p.add_argument(
         "--override",
@@ -56,7 +63,7 @@ def main() -> None:
         None. Prints resolved run directory path to stdout.
     """
     args = parse_args()
-    cfg = load_config(args.config)
+    cfg = load_config_with_model(args.config, model=args.model, models_path=args.models_config)
     ensure_required_sections(cfg)
     cfg = ensure_experiment_defaults(cfg)
 

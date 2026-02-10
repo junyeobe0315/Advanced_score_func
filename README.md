@@ -27,9 +27,12 @@ pip install -r requirements.txt
 ## Training / Evaluation CLI
 
 ```bash
-python -m src.main_train --config configs/cifar10/m3.yaml --seed 0
+# unified runner (recommended)
+python main.py --dataset=toy --seeds=[0,1,2] --models=[m0,m1,m2,m3,m4] --mode=both --toy_report
+
+# low-level entrypoints
+python -m src.main_train --config configs/cifar10/dataset.yaml --model m3 --seed 0
 python -m src.main_eval --run_dir runs/cifar10/M3/seed0 --nfe_list 8,18,32,64,128
-python -m src.main_sweep --sweep configs/toy/m1.yaml --seeds 0,1,2
 ```
 
 Outputs are saved under:
@@ -50,22 +53,20 @@ Artifacts per run:
 - `reports/steps_to_target_fid*.csv` (via `scripts/make_report_tables.py`)
 - `reports/compute_matched_fid.csv` (via `scripts/make_report_tables.py`)
 
-## Quick Run Scripts
+## Important Files
 
-```bash
-bash scripts/run_toy_all.sh
-bash scripts/run_mnist_all.sh
-bash scripts/run_cifar_smoke.sh
-bash scripts/run_cifar_main.sh
-bash scripts/run_imagenet128_all.sh
-bash scripts/run_imagenet256_all.sh
-bash scripts/run_imagenet512_all.sh
-bash scripts/run_lsun256_all.sh
-bash scripts/run_ffhq256_all.sh
-```
+- `main.py`: unified experiment orchestrator (`train/eval/report` in one command)
+- `configs/<dataset>/dataset.yaml`: dataset/runtime/training defaults
+- `configs/<dataset>/models.yaml`: model presets (`m0..m4`) for that dataset
+- `src/main_train.py`: single-run trainer entrypoint
+- `src/main_eval.py`: run-directory evaluator
+- `scripts/make_report_tables.py`: aggregate report CSVs
+- `scripts/make_toy_modified_report.py`: toy comparison plots/CSVs
 
-`run_toy_all.sh` / `run_mnist_all.sh` / `run_cifar_main.sh` default to 3 seeds (`0,1,2`).
-`run_cifar_smoke.sh` runs the 5 models with short steps for pipeline validation.
+If you need faster toy iteration, start from:
+- `configs/toy/dataset.yaml`:
+  `dataset.batch_size`, `train.selection_eval_every`, `train.selection_eval_nfe`,
+  `train.selection_eval_num_samples`, `train.ckpt_every_steps`.
 
 ## Notes (EDM + M3/M4)
 
@@ -92,14 +93,19 @@ bash scripts/run_ffhq256_all.sh
 
 ## 5-Way Config Sets
 
-- Toy: `configs/toy/m0.yaml` ... `configs/toy/m4.yaml`
-- MNIST: `configs/mnist/m0.yaml` ... `configs/mnist/m4.yaml`
-- CIFAR-10: `configs/cifar10/m0.yaml` ... `configs/cifar10/m4.yaml`
-- ImageNet-128: `configs/imagenet128/m0.yaml` ... `configs/imagenet128/m4.yaml`
-- ImageNet-256: `configs/imagenet256/m0.yaml` ... `configs/imagenet256/m4.yaml`
-- ImageNet-512: `configs/imagenet512/m0.yaml` ... `configs/imagenet512/m4.yaml`
-- LSUN-256: `configs/lsun256/m0.yaml` ... `configs/lsun256/m4.yaml`
-- FFHQ-256: `configs/ffhq256/m0.yaml` ... `configs/ffhq256/m4.yaml`
+Each dataset now uses two config files:
+- `dataset.yaml`: dataset/runtime defaults
+- `models.yaml`: all model presets (`m0`..`m4`)
+
+Examples:
+- Toy: `configs/toy/dataset.yaml` + `configs/toy/models.yaml`
+- MNIST: `configs/mnist/dataset.yaml` + `configs/mnist/models.yaml`
+- CIFAR-10: `configs/cifar10/dataset.yaml` + `configs/cifar10/models.yaml`
+- ImageNet-128: `configs/imagenet128/dataset.yaml` + `configs/imagenet128/models.yaml`
+- ImageNet-256: `configs/imagenet256/dataset.yaml` + `configs/imagenet256/models.yaml`
+- ImageNet-512: `configs/imagenet512/dataset.yaml` + `configs/imagenet512/models.yaml`
+- LSUN-256: `configs/lsun256/dataset.yaml` + `configs/lsun256/models.yaml`
+- FFHQ-256: `configs/ffhq256/dataset.yaml` + `configs/ffhq256/models.yaml`
 
 ## References (Paper + Code)
 

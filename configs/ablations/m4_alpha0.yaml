@@ -1,3 +1,24 @@
-base_config: ../cifar10/m4.yaml
+base_config: ../cifar10/dataset.yaml
+
+experiment:
+  model_id: M4
+
+model:
+  variant: baseline
+  type: unet
+  hybrid:
+    high_type: unet
+    low_type: potential_unet
+    low_base_channels: 48
+
 loss:
   alpha: 0.0
+  beta: 0.006
+  mu2: 0.0
+  boundary_subset: 8
+  cycle_subset: 4
+  cycle_samples: 4
+  reg_freq: 4
+  match_freq: 4
+  cycle_freq: 16
+  cycle_same_sigma: true

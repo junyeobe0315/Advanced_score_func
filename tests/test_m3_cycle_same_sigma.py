@@ -6,7 +6,7 @@ import torch
 
 import src.trainers.train_step_m3 as train_step_m3_mod
 from src.models.score_mlp_toy import ScoreMLPToy
-from src.utils.config import ensure_experiment_defaults, load_config
+from src.utils.config import ensure_experiment_defaults, load_config_with_model
 
 
 class IdentityFeatureEncoder(torch.nn.Module):
@@ -19,7 +19,7 @@ class IdentityFeatureEncoder(torch.nn.Module):
 def test_m3_cycle_uses_shared_sigma_when_enabled(monkeypatch) -> None:
     """M3 cycle path should pass a single shared sigma value to cycle estimator."""
     repo_root = Path(__file__).resolve().parents[1]
-    cfg = load_config(str(repo_root / "configs" / "toy" / "m3.yaml"))
+    cfg = load_config_with_model(str(repo_root / "configs" / "toy" / "dataset.yaml"), model="m3")
     cfg = ensure_experiment_defaults(cfg)
     cfg["loss"]["mu1"] = 0.0
     cfg["loss"]["mu2"] = 0.5

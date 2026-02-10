@@ -7,7 +7,7 @@ import torch.nn as nn
 
 from src.models import build_model
 from src.models.edm_precond import EDMPreconditionedScore
-from src.utils.config import ensure_experiment_defaults, load_config
+from src.utils.config import ensure_experiment_defaults, load_config_with_model
 
 
 class ZeroBackbone(nn.Module):
@@ -38,7 +38,7 @@ def test_edm_preconditioned_score_matches_closed_form_for_zero_backbone() -> Non
 def test_toy_m0_builds_with_edm_preconditioning() -> None:
     """Toy M0 config should resolve to EDM-preconditioned score wrapper."""
     repo_root = Path(__file__).resolve().parents[1]
-    cfg = load_config(str(repo_root / "configs" / "toy" / "m0.yaml"))
+    cfg = load_config_with_model(str(repo_root / "configs" / "toy" / "dataset.yaml"), model="m0")
     cfg = ensure_experiment_defaults(cfg)
     model = build_model(cfg)
     assert isinstance(model, EDMPreconditionedScore)

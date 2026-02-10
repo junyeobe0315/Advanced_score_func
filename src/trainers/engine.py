@@ -234,7 +234,6 @@ def train(cfg: dict, seed: int | None = None) -> Path:
 
     loader = make_loader(cfg, train=True)
     data_iter = iter(loader)
-    steps_per_epoch = max(int(len(loader)), 1)
 
     feature_encoder: torch.nn.Module | None = None
     if model_id in {"M3", "M4"}:
@@ -247,10 +246,8 @@ def train(cfg: dict, seed: int | None = None) -> Path:
     total_steps = int(cfg["train"]["total_steps"])
     accum_steps = int(cfg["train"].get("grad_accum_steps", 1))
     log_every = int(cfg["train"].get("log_every", 50))
-    ckpt_every = int(cfg["train"].get("ckpt_every", 1000))
-    ckpt_every_epochs = cfg["train"].get("ckpt_every_epochs")
-    if ckpt_every_epochs is not None:
-        ckpt_every = max(1, int(round(float(ckpt_every_epochs) * float(steps_per_epoch))))
+    ckpt_every_steps = int(cfg["train"].get("ckpt_every_steps", cfg["train"].get("ckpt_every", 1000)))
+    ckpt_every_steps = max(1, ckpt_every_steps)
     keep_last_k = int(cfg["train"].get("keep_last_k", 3))
     clip_grad = float(cfg["train"].get("clip_grad_norm", 1.0))
 
@@ -406,7 +403,7 @@ def train(cfg: dict, seed: int | None = None) -> Path:
             tb_logger.log_scalars(row, step)
             progress.set_postfix({"loss": f"{row['loss_total']:.4f}", "ips": f"{row['imgs_per_sec']:.1f}"})
 
-        if step % ckpt_every == 0 or step == total_steps:
+        if step % ckpt_every_steps == 0 or step == total_steps:
             save_checkpoint(
                 run_dir=run_dir,
                 step=step,
