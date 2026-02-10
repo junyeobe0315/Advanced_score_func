@@ -27,6 +27,7 @@ from .model_selection import (
     score_to_record,
     update_topk_records,
 )
+from .selection_gif import create_best_ckpt_sampling_gif
 from .train_step_baseline import train_step_baseline
 from .train_step_m3 import train_step_m3
 from .train_step_m4 import train_step_m4
@@ -330,11 +331,22 @@ def train(cfg: dict, seed: int | None = None) -> Path:
         )
     )
     selection_batch_size = int(cfg["train"].get("selection_eval_batch_size", cfg.get("eval", {}).get("batch_size", 64)))
+    default_gif_samples = 512 if dataset_name.startswith("toy") else 16
+    selection_gif_enable = bool(cfg["train"].get("selection_gif_enable", selection_enable))
+    selection_gif_sampler = str(cfg["train"].get("selection_gif_sampler", selection_sampler))
+    selection_gif_nfe = max(1, int(cfg["train"].get("selection_gif_nfe", selection_nfe)))
+    selection_gif_num_samples = max(1, int(cfg["train"].get("selection_gif_num_samples", default_gif_samples)))
+    selection_gif_max_frames = max(2, int(cfg["train"].get("selection_gif_max_frames", 40)))
+    selection_gif_fps = max(1, int(cfg["train"].get("selection_gif_fps", 8)))
+    selection_gif_max_images = max(1, int(cfg["train"].get("selection_gif_max_images", 16)))
     topk_state_path = run_dir / "eval" / "selection_topk.json"
     topk_history_path = run_dir / "eval" / "selection_history.csv"
     topk_records: list[dict] = []
     selection_eval_count = 0
     selection_elapsed_sec = 0.0
+    selection_gif_meta: dict | None = None
+    selection_gif_error: str | None = None
+    selection_state_payload: dict | None = None
     if selection_enable:
         topk_state_path.unlink(missing_ok=True)
         topk_history_path.unlink(missing_ok=True)
@@ -482,30 +494,89 @@ def train(cfg: dict, seed: int | None = None) -> Path:
                 eval_bar.set_postfix({"step": step, "metric": metric_text})
             selection_elapsed_sec = float(time.perf_counter() - t0_selection)
 
-        save_selection_state(
-            path=topk_state_path,
-            payload={
-                "topk": topk_records,
-                "metric_policy": {
-                    "dataset": dataset_name,
-                    "toy": "maximize toy_logpdf, tie-break by lower mmd",
-                    "mnist_cifar10": "minimize fid",
-                },
-                "selection_config": {
-                    "selection_eval_every": selection_eval_every,
-                    "selection_top_k": selection_top_k,
-                    "selection_eval_nfe": selection_nfe,
-                    "selection_eval_num_samples": selection_num_samples,
-                    "selection_eval_batch_size": selection_batch_size,
-                    "selection_sampler": selection_sampler,
-                    "selection_use_ema": selection_use_ema,
-                },
-                "selection_runtime": {
-                    "evaluated_checkpoints": int(selection_eval_count),
-                    "elapsed_sec": float(selection_elapsed_sec),
-                },
+        selection_state_payload = {
+            "topk": topk_records,
+            "metric_policy": {
+                "dataset": dataset_name,
+                "toy": "maximize toy_logpdf, tie-break by lower mmd",
+                "mnist_cifar10": "minimize fid",
             },
-        )
+            "selection_config": {
+                "selection_eval_every": selection_eval_every,
+                "selection_top_k": selection_top_k,
+                "selection_eval_nfe": selection_nfe,
+                "selection_eval_num_samples": selection_num_samples,
+                "selection_eval_batch_size": selection_batch_size,
+                "selection_sampler": selection_sampler,
+                "selection_use_ema": selection_use_ema,
+                "selection_gif_enable": selection_gif_enable,
+                "selection_gif_sampler": selection_gif_sampler,
+                "selection_gif_nfe": selection_gif_nfe,
+                "selection_gif_num_samples": selection_gif_num_samples,
+                "selection_gif_max_frames": selection_gif_max_frames,
+                "selection_gif_fps": selection_gif_fps,
+                "selection_gif_max_images": selection_gif_max_images,
+            },
+            "selection_runtime": {
+                "evaluated_checkpoints": int(selection_eval_count),
+                "elapsed_sec": float(selection_elapsed_sec),
+            },
+        }
+        save_selection_state(path=topk_state_path, payload=selection_state_payload)
+
+    if selection_gif_enable:
+        best_step: int | None = None
+        if topk_records:
+            best_step = int(topk_records[0].get("step", -1))
+            if best_step < 0:
+                best_step = None
+        if best_step is None:
+            step_paths = sorted((run_dir / "checkpoints").glob("step_*.pt"))
+            if step_paths:
+                best_step = _step_from_ckpt_path(step_paths[-1])
+
+        if best_step is not None:
+            best_ckpt_path = run_dir / "checkpoints" / f"step_{int(best_step):08d}.pt"
+            if best_ckpt_path.exists():
+                try:
+                    payload = load_checkpoint(best_ckpt_path, map_location=str(device))
+                    model.load_state_dict(payload["model"], strict=True)
+                    ema_payload = payload.get("ema")
+                    if selection_use_ema and isinstance(ema_payload, dict):
+                        shadow = ema_payload.get("shadow")
+                        if isinstance(shadow, dict):
+                            model.load_state_dict(shadow, strict=False)
+                    model.eval()
+
+                    selection_gif_meta = create_best_ckpt_sampling_gif(
+                        cfg=cfg,
+                        model=model,
+                        model_id=model_id,
+                        device=device,
+                        out_path=run_dir / "reports" / "best_ckpt_sampling.gif",
+                        sampler_name=selection_gif_sampler,
+                        nfe=selection_gif_nfe,
+                        num_samples=selection_gif_num_samples,
+                        max_frames=selection_gif_max_frames,
+                        fps=selection_gif_fps,
+                        max_images=selection_gif_max_images,
+                    )
+                    if selection_gif_meta is not None:
+                        print(
+                            "[selection_gif] "
+                            f"path={selection_gif_meta['path']} "
+                            f"frames={selection_gif_meta['frames']} fps={selection_gif_meta['fps']}"
+                        )
+                except Exception as exc:
+                    selection_gif_error = str(exc)
+                    print(f"[selection_gif][skip] {selection_gif_error}")
+
+    if selection_state_payload is not None:
+        selection_state_payload["selection_gif"] = {
+            "meta": selection_gif_meta,
+            "error": selection_gif_error,
+        }
+        save_selection_state(path=topk_state_path, payload=selection_state_payload)
 
     keep_steps = {int(item.get("step", -1)) for item in topk_records if int(item.get("step", -1)) >= 0}
     retention = prune_checkpoints_after_training(
@@ -531,6 +602,11 @@ def train(cfg: dict, seed: int | None = None) -> Path:
                 "enabled": bool(selection_enable),
                 "evaluated_checkpoints": int(selection_eval_count),
                 "elapsed_sec": float(selection_elapsed_sec),
+            },
+            "selection_gif": {
+                "enabled": bool(selection_gif_enable),
+                "meta": selection_gif_meta,
+                "error": selection_gif_error,
             },
             "checkpoint_retention": retention,
         }

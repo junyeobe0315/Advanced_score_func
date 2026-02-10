@@ -121,17 +121,33 @@ def load_config_with_model(
 
     Returns:
         Resolved config dictionary with selected model overlay applied.
+
+    How it works:
+        If ``models.yaml`` defines ``defaults`` (or ``shared_defaults``),
+        those values are merged into dataset config first. Then the selected
+        ``model_presets[model]`` overlay is merged.
     """
     cfg = load_config(config_path)
-    if model is None:
-        return cfg
-
-    model_key = _normalize_model_key(model)
     if models_path is None:
         models_path = Path(config_path).resolve().parent / "models.yaml"
     models_cfg = load_config(models_path)
 
-    presets = models_cfg.get("model_presets", models_cfg)
+    defaults = models_cfg.get("defaults")
+    if defaults is None:
+        defaults = models_cfg.get("shared_defaults")
+    if defaults is not None:
+        if not isinstance(defaults, dict):
+            raise ConfigError(f"defaults must be a mapping: {models_path}")
+        cfg = _deep_merge(cfg, defaults)
+
+    if model is None:
+        return cfg
+
+    model_key = _normalize_model_key(model)
+
+    presets = models_cfg.get("model_presets")
+    if presets is None:
+        presets = {k: v for k, v in models_cfg.items() if k not in {"defaults", "shared_defaults"}}
     if not isinstance(presets, dict):
         raise ConfigError(f"model_presets must be a mapping: {models_path}")
 

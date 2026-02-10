@@ -9,27 +9,6 @@ dataset:
   pin_memory: true
   image_size: 28
   channels: 1
-model:
-  variant: baseline
-  type: unet
-  base_channels: 32
-  channel_mults:
-  - 1
-  - 2
-  - 2
-  num_res_blocks: 1
-  attn_resolutions:
-  - 14
-  sigma_embed_dim: 96
-  dropout: 0.0
-  preconditioning:
-    type: edm
-    sigma_data: 0.5
-    sigma_eps: 1.0e-05
-  hybrid:
-    high_type: unet
-    low_type: potential_unet
-    low_base_channels: 32
 train:
   total_steps: 120000
   grad_accum_steps: 1
@@ -53,46 +32,6 @@ train:
   selection_sampler: heun
   selection_use_ema: true
   seed: 0
-loss:
-  objective: edm_denoiser
-  sigma_sampling: edm_lognormal
-  edm_p_mean: -1.2
-  edm_p_std: 1.2
-  sigma_sample_clamp: true
-  sigma_data: 0.5
-  weight_mode: sigma2
-  sigma_min: 0.002
-  sigma_max: 40.0
-  lambda_sym: 0.0
-  mu_loop: 0.0
-  reg_k: 1
-  reg_freq: 1
-  reg_low_noise_only: true
-  reg_low_noise_threshold: 0.2
-  loop_delta: 0.01
-  loop_sparse_ratio: 0.25
-  sigma0: 0.5
-  lambda0: 0.05
-  mu1: 0.05
-  mu2: 0.05
-  alpha: 0.05
-  beta: 0.025
-  sigma_c: 0.5
-  reg_sym_method: auto_fast
-  reg_sym_eps_fd: 0.001
-  delta_set:
-  - 0.002
-  - 0.004
-  - 0.008
-  cycle_knn_k: 8
-  cycle_lengths:
-  - 3
-  - 4
-  - 5
-  cycle_samples: 32
-  cycle_subset: 64
-  cycle_freq: 2
-  boundary_freq: 2
 sampler:
   main: heun
   compare:

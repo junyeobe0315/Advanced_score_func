@@ -1,3 +1,59 @@
+defaults:
+  model:
+    variant: baseline
+    type: unet
+    base_channels: 20
+    channel_mults:
+    - 1
+    - 1
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    num_res_blocks: 1
+    attn_resolutions:
+    - 16
+    sigma_embed_dim: 96
+    dropout: 0.1
+    hybrid:
+      high_type: unet
+      low_type: potential_unet
+      low_base_channels: 20
+  loss:
+    weight_mode: sigma2
+    sigma_min: 0.002
+    sigma_max: 80.0
+    lambda_sym: 0.0
+    mu_loop: 0.0
+    reg_k: 1
+    reg_freq: 8
+    reg_low_noise_only: true
+    reg_low_noise_threshold: 0.2
+    loop_delta: 0.003
+    loop_sparse_ratio: 0.02
+    sigma0: 1.0
+    lambda0: 0.02
+    mu1: 0.02
+    mu2: 0.02
+    alpha: 0.02
+    beta: 0.01
+    sigma_c: 1.0
+    reg_sym_method: auto_fast
+    reg_sym_eps_fd: 0.001
+    delta_set:
+    - 0.0008
+    - 0.0015
+    - 0.003
+    cycle_knn_k: 8
+    cycle_lengths:
+    - 3
+    - 4
+    - 5
+    cycle_samples: 8
+    cycle_subset: 8
+    cycle_freq: 2
+    boundary_freq: 2
 model_presets:
   m0:
     experiment:
@@ -12,7 +68,6 @@ model_presets:
       mu2: 0.0
       alpha: 0.0
       beta: 0.0
-
   m1:
     experiment:
       model_id: M1
@@ -24,7 +79,6 @@ model_presets:
       mu_loop: 0.0
       reg_k: 1
       reg_freq: 8
-
   m2:
     experiment:
       model_id: M2
@@ -37,7 +91,6 @@ model_presets:
       mu_loop: 0.0
       mu1: 0.0
       mu2: 0.0
-
   m3:
     experiment:
       model_id: M3
@@ -57,7 +110,6 @@ model_presets:
       loop_freq: 4
       cycle_freq: 16
       cycle_same_sigma: true
-
   m4:
     experiment:
       model_id: M4

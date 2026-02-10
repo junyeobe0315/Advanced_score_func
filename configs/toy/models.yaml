@@ -1,3 +1,56 @@
+defaults:
+  model:
+    variant: baseline
+    type: mlp
+    hidden_dim: 16
+    depth: 3
+    sigma_embed_dim: 8
+    channels: 1
+    preconditioning:
+      type: edm
+      sigma_data: 0.5
+      sigma_eps: 1.0e-05
+    hybrid:
+      high_type: mlp
+      low_type: mlp_potential
+  loss:
+    objective: edm_denoiser
+    sigma_sampling: edm_lognormal
+    edm_p_mean: -1.2
+    edm_p_std: 1.2
+    sigma_sample_clamp: true
+    sigma_data: 0.5
+    weight_mode: sigma2
+    sigma_min: 0.01
+    sigma_max: 2.0
+    lambda_sym: 0.0
+    mu_loop: 0.0
+    reg_k: 1
+    reg_freq: 1
+    reg_low_noise_only: true
+    reg_low_noise_threshold: 0.25
+    loop_delta: 0.03
+    loop_sparse_ratio: 1.0
+    sigma0: 0.25
+    lambda0: 0.2
+    mu1: 0.2
+    mu2: 0.2
+    alpha: 0.2
+    beta: 0.1
+    sigma_c: 0.25
+    reg_sym_method: auto_fast
+    reg_sym_eps_fd: 0.001
+    delta_set:
+    - 0.02
+    - 0.05
+    - 0.1
+    cycle_knn_k: 8
+    cycle_lengths:
+    - 3
+    - 4
+    - 5
+    cycle_samples: 64
+    cycle_subset: null
 model_presets:
   m0:
     experiment:
@@ -12,7 +65,6 @@ model_presets:
       mu2: 0.0
       alpha: 0.0
       beta: 0.0
-
   m1:
     experiment:
       model_id: M1
@@ -20,7 +72,7 @@ model_presets:
       variant: reg
       type: mlp
     loss:
-      lambda_sym: 0.20
+      lambda_sym: 0.2
       mu_loop: 0.0
       reg_k: 2
       reg_freq: 2
@@ -29,7 +81,6 @@ model_presets:
       reg_sym_probe_dist: rademacher
       reg_sym_scale_sigma2: true
       reg_low_noise_only: false
-
   m2:
     experiment:
       model_id: M2
@@ -41,7 +92,6 @@ model_presets:
       mu_loop: 0.0
       mu1: 0.0
       mu2: 0.0
-
   m3:
     experiment:
       model_id: M3
@@ -51,8 +101,8 @@ model_presets:
     loss:
       lambda_sym: 0.0
       mu_loop: 0.0
-      mu1: 0.012
-      mu2: 0.003
+      mu1: 0.01
+      mu2: 0.005
       loop_subset: 8
       cycle_subset: 8
       cycle_samples: 8
@@ -61,7 +111,6 @@ model_presets:
       loop_freq: 4
       cycle_freq: 16
       cycle_same_sigma: true
-
   m4:
     experiment:
       model_id: M4

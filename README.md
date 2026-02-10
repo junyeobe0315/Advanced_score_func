@@ -50,6 +50,7 @@ Artifacts per run:
 - `eval/fid_vs_nfe.csv`
 - `eval/integrability_vs_sigma.csv`
 - `eval/compute_summary.json`
+- `reports/best_ckpt_sampling.gif` (post-train selection enabled 시 생성)
 - `reports/steps_to_target_fid*.csv` (via `scripts/make_report_tables.py`)
 - `reports/compute_matched_fid.csv` (via `scripts/make_report_tables.py`)
 
@@ -57,7 +58,7 @@ Artifacts per run:
 
 - `main.py`: unified experiment orchestrator (`train/eval/report` in one command)
 - `configs/<dataset>/dataset.yaml`: dataset/runtime/training defaults
-- `configs/<dataset>/models.yaml`: model presets (`m0..m4`) for that dataset
+- `configs/<dataset>/models.yaml`: model-related defaults + model presets (`m0..m4`)
 - `src/main_train.py`: single-run trainer entrypoint
 - `src/main_eval.py`: run-directory evaluator
 - `scripts/make_report_tables.py`: aggregate report CSVs
@@ -95,7 +96,7 @@ If you need faster toy iteration, start from:
 
 Each dataset now uses two config files:
 - `dataset.yaml`: dataset/runtime defaults
-- `models.yaml`: all model presets (`m0`..`m4`)
+- `models.yaml`: model/loss defaults + all model presets (`m0`..`m4`)
 
 Examples:
 - Toy: `configs/toy/dataset.yaml` + `configs/toy/models.yaml`

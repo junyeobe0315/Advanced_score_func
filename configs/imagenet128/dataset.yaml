@@ -13,25 +13,6 @@ dataset:
     train_dir: imagenet/train
     val_dir: imagenet/val
     random_flip: true
-model:
-  variant: baseline
-  type: unet
-  base_channels: 40
-  channel_mults:
-  - 1
-  - 1
-  - 2
-  - 2
-  - 2
-  num_res_blocks: 1
-  attn_resolutions:
-  - 16
-  sigma_embed_dim: 96
-  dropout: 0.1
-  hybrid:
-    high_type: unet
-    low_type: potential_unet
-    low_base_channels: 40
 train:
   total_steps: 400000
   grad_accum_steps: 1
@@ -47,40 +28,6 @@ train:
   ckpt_every_steps: 500
   keep_last_k: 3
   seed: 0
-loss:
-  weight_mode: sigma2
-  sigma_min: 0.002
-  sigma_max: 80.0
-  lambda_sym: 0.0
-  mu_loop: 0.0
-  reg_k: 1
-  reg_freq: 4
-  reg_low_noise_only: true
-  reg_low_noise_threshold: 0.2
-  loop_delta: 0.006
-  loop_sparse_ratio: 0.05
-  sigma0: 1.0
-  lambda0: 0.03
-  mu1: 0.03
-  mu2: 0.03
-  alpha: 0.03
-  beta: 0.015
-  sigma_c: 1.0
-  reg_sym_method: auto_fast
-  reg_sym_eps_fd: 0.001
-  delta_set:
-  - 0.0015
-  - 0.003
-  - 0.006
-  cycle_knn_k: 8
-  cycle_lengths:
-  - 3
-  - 4
-  - 5
-  cycle_samples: 16
-  cycle_subset: 32
-  cycle_freq: 2
-  boundary_freq: 2
 sampler:
   main: heun
   compare:
