@@ -1,0 +1,280 @@
+base:
+  project:
+    name: advance_score
+    run_root: runs
+  dataset:
+    data_root: data
+    num_workers: 4
+    pin_memory: true
+  train:
+    total_steps: 250000
+    grad_accum_steps: 1
+    amp: true
+    lr: 0.0002
+    betas:
+    - 0.9
+    - 0.999
+    weight_decay: 0.01
+    ema_decay: 0.9999
+    clip_grad_norm: 1.0
+    log_every: 50
+    ckpt_every_steps: 500
+    keep_last_k: 3
+    seed: 0
+  loss:
+    start_mu2: 1.0e-05
+  sampler:
+    main: heun
+    compare:
+    - euler
+    nfe_list:
+    - 10
+    - 20
+    - 50
+    - 100
+    - 200
+  eval:
+    batch_size: 64
+    num_fid_samples: 10000
+    sigma_bins: 8
+    integrability_batch: 64
+    pathvar:
+      enabled: false
+      num_paths: 4
+      num_segments: 6
+    use_torch_fidelity: true
+    enable_cycle_metrics: true
+  logging:
+    use_tensorboard: true
+    csv_filename: metrics.csv
+  compute:
+    device: auto
+    cudnn_benchmark: true
+    precision: amp
+    target_gpu_hours: 36
+  experiment:
+    name: integrability_5way
+datasets:
+  toy:
+    dataset:
+      name: toy
+      batch_size: 128 #seed0,1,2 512
+      num_workers: 0
+      pin_memory: false
+      image_size: null
+      channels: 1
+      toy:
+        kind: gmm
+        dim: 2
+        n_modes: 8
+        radius: 4
+        std: 0.5
+        layout_seed: 0
+        angle_offset: 0.0
+        angle_jitter: 0.0
+        radius_min: null
+        radius_max: null
+        center_jitter_std: 0.0
+        center_offset: null
+        std_min: null
+        std_max: null
+        centers: null
+        stds: null
+    train:
+      total_steps: 20000 #seed0,1,2 50000
+      amp: false
+      lr: 0.0001
+      ema_decay: 0.999
+      log_every: 100
+      ckpt_every_steps: 500 #seed0,1,2 250
+      selection_enable: true
+      selection_eval_every: 100
+      selection_top_k: 3
+      selection_eval_nfe: 64
+      selection_eval_num_samples: 2048
+      selection_eval_batch_size: 512
+      selection_sampler: heun
+      selection_use_ema: true
+    sampler:
+      nfe_list:
+      - 8
+      - 18
+      - 32
+      - 64
+      - 128
+    eval:
+      batch_size: 1024
+      integrability_batch: 1024
+      pathvar:
+        enabled: true
+        num_paths: 8
+        num_segments: 12
+    compute:
+      precision: fp16
+      target_gpu_hours: 2
+    loss:
+      start_mu2: 1.0e-03
+  mnist:
+    dataset:
+      name: mnist
+      batch_size: 512
+      image_size: 28
+      channels: 1
+    train:
+      total_steps: 120000
+      ema_decay: 0.999
+      ckpt_every_steps: 100
+      selection_enable: true
+      selection_eval_every: 100
+      selection_top_k: 3
+      selection_eval_nfe: 100
+      selection_eval_num_samples: 2048
+      selection_eval_batch_size: 512
+      selection_sampler: heun
+      selection_use_ema: true
+    sampler:
+      nfe_list:
+      - 8
+      - 18
+      - 32
+      - 64
+      - 128
+    eval:
+      batch_size: 512
+      integrability_batch: 512
+    compute:
+      target_gpu_hours: 12
+    loss:
+      start_mu2: 3.0e-04
+  cifar10:
+    dataset:
+      name: cifar10
+      batch_size: 256
+      image_size: 32
+      channels: 3
+    train:
+      selection_enable: true
+      selection_eval_every: 100
+      selection_top_k: 3
+      selection_eval_nfe: 100
+      selection_eval_num_samples: 2048
+      selection_eval_batch_size: 256
+      selection_sampler: heun
+      selection_use_ema: true
+    sampler:
+      nfe_list:
+      - 8
+      - 18
+      - 32
+      - 64
+      - 128
+    eval:
+      batch_size: 256
+      integrability_batch: 256
+    compute:
+      target_gpu_hours: 36
+      tier: main
+    loss:
+      start_mu2: 1.0e-04
+  imagenet128:
+    dataset:
+      name: imagenet128
+      batch_size: 96
+      num_workers: 8
+      image_size: 128
+      channels: 3
+      imagenet:
+        train_dir: imagenet/train
+        val_dir: imagenet/val
+        random_flip: true
+    train:
+      total_steps: 400000
+    eval:
+      batch_size: 96
+      integrability_batch: 96
+    compute:
+      target_gpu_hours: 72
+      tier: main
+  imagenet256:
+    dataset:
+      name: imagenet256
+      batch_size: 24
+      num_workers: 8
+      image_size: 256
+      channels: 3
+      imagenet:
+        train_dir: imagenet/train
+        val_dir: imagenet/val
+        random_flip: true
+    train:
+      total_steps: 500000
+    eval:
+      batch_size: 24
+      integrability_batch: 24
+    compute:
+      target_gpu_hours: 120
+      tier: main
+  imagenet512:
+    dataset:
+      name: imagenet512
+      batch_size: 8
+      num_workers: 8
+      image_size: 512
+      channels: 3
+      imagenet:
+        train_dir: imagenet/train
+        val_dir: imagenet/val
+        random_flip: true
+    train:
+      total_steps: 600000
+      lr: 0.00015
+    eval:
+      batch_size: 8
+      integrability_batch: 8
+    compute:
+      target_gpu_hours: 200
+      tier: main
+  lsun256:
+    dataset:
+      name: lsun256
+      batch_size: 24
+      num_workers: 8
+      image_size: 256
+      channels: 3
+      lsun:
+        root: lsun
+        train_classes:
+        - bedroom_train
+        val_classes:
+        - bedroom_val
+        random_flip: true
+        allow_eval_train_fallback: true
+    train:
+      total_steps: 500000
+    eval:
+      batch_size: 24
+      integrability_batch: 24
+    compute:
+      target_gpu_hours: 120
+      tier: main
+  ffhq256:
+    dataset:
+      name: ffhq256
+      batch_size: 8
+      num_workers: 8
+      image_size: 256
+      channels: 3
+      ffhq:
+        train_dir: ffhq/train
+        val_dir: ffhq/val
+        random_flip: true
+        allow_eval_train_fallback: true
+    train:
+      total_steps: 500000
+      grad_accum_steps: 4
+    eval:
+      batch_size: 8
+      integrability_batch: 8
+    compute:
+      target_gpu_hours: 120
+      tier: main

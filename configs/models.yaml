@@ -97,6 +97,8 @@ bases:
         loss:
           lambda_sym: 0.0
           mu_loop: 0.0
+          target_r: 0.01
+          update_step: 200
       m4:
         experiment:
           model_id: M4
@@ -113,10 +115,10 @@ bases:
       model:
         variant: baseline
         type: mlp
-        hidden_dim: 192
-        depth: 3
-        sigma_embed_dim: 128
-        channels: 1
+        hidden_dim: 16 # seed0,1,2 128
+        depth: 2 # seed0,1,2 3
+        sigma_embed_dim: 8 # seed0,1,2 64
+        channels: 1 
         preconditioning:
           type: edm
           sigma_data: 0.5
@@ -212,19 +214,20 @@ bases:
         loss:
           lambda_sym: 0.0
           mu_loop: 0.0
-          mu1: 0.0
-          mu2: 0.0015
-          loop_subset: 8
-          cycle_subset: 64
-          cycle_samples: 32
-          cycle_knn_k: 8
-          reg_freq: 2
-          loop_freq: 2
-          cycle_freq: 16
-          reg_low_noise_only: false
-          cycle_same_sigma: true
-          cycle_lengths: [3, 4]
-          delta_set: [0.02, 0.05, 0.1]
+          mu1: 0.5
+          target_r: 0.1
+          update_step: 200
+          loop_subset: 8 # seed0,1,2 8
+          cycle_subset: 64 # seed0,1,2 512
+          cycle_samples: 64 # seed0,1,2 512
+          cycle_knn_k: 8 # seed0,1,2 8
+          reg_freq: 1 # seed0,1,2 1
+          loop_freq: 2  # seed0,1,2 2
+          cycle_freq: 1 # seed0,1,2 1
+          reg_low_noise_only: false # seed0,1,2 false
+          cycle_same_sigma: true # seed0,1,2 true
+          cycle_lengths: [3,4,5] # seed0,1,2 [3,4]
+          delta_set: [0.02, 0.05, 0.10] # seed0,1,2 [0.02,0.05,0.1]
 
       m4:
         experiment:
@@ -250,7 +253,7 @@ bases:
           match_freq: 1
           cycle_freq: 16
           cycle_same_sigma: true
-          sigma_c: 0.3
+          sigma_c: 0.35
           boundary_bandwidth: 0.1
 datasets:
   toy:
@@ -308,7 +311,8 @@ datasets:
       m3:
         loss:
           mu1: 0.012
-          mu2: 0.003
+          target_r: 0.05
+          update_step: 200
           loop_subset: 8
           cycle_subset: 8
           cycle_samples: 8
@@ -360,7 +364,8 @@ datasets:
       m3:
         loss:
           mu1: 0.012
-          mu2: 0.003
+          target_r: 0.03
+          update_step: 200
           loop_subset: 8
           cycle_subset: 8
           cycle_samples: 8
@@ -405,7 +410,7 @@ datasets:
       m3:
         loss:
           mu1: 0.012
-          mu2: 0.003
+          update_step: 200
           loop_subset: 8
           cycle_subset: 8
           cycle_samples: 8
@@ -463,7 +468,7 @@ datasets:
       m3:
         loss:
           mu1: 0.012
-          mu2: 0.003
+          update_step: 200
           loop_subset: 8
           cycle_subset: 8
           cycle_samples: 8
@@ -528,7 +533,7 @@ datasets:
       m3:
         loss:
           mu1: 0.012
-          mu2: 0.003
+          update_step: 200
           loop_subset: 8
           cycle_subset: 8
           cycle_samples: 8
@@ -586,7 +591,7 @@ datasets:
       m3:
         loss:
           mu1: 0.012
-          mu2: 0.003
+          update_step: 200
           loop_subset: 8
           cycle_subset: 8
           cycle_samples: 8
@@ -650,7 +655,7 @@ datasets:
       m3:
         loss:
           mu1: 0.03
-          mu2: 0.03
+          update_step: 200
       m4:
         model:
           hybrid:

@@ -19,6 +19,7 @@ def _circulation_from_cycles(
     score_flat: torch.Tensor,
     x_flat: torch.Tensor,
     cycles: torch.Tensor,
+    path_length_normalization: bool = False,
 ) -> torch.Tensor:
     """Compute per-cycle circulation values for a fixed cycle set.
 
@@ -32,6 +33,8 @@ def _circulation_from_cycles(
 
     How it works:
         Uses ``Circ(C) = Σ s(x_i)·(x_{i+1}-x_i)`` with wrap-around at cycle end.
+        When ``path_length_normalization=True``, returns
+        ``Circ(C) / (Σ ||x_{i+1}-x_i|| + 1e-8)``.
     """
     if cycles.numel() == 0:
         return torch.zeros((0,), device=score_flat.device, dtype=score_flat.dtype)
@@ -44,7 +47,12 @@ def _circulation_from_cycles(
     x_i = x_flat.index_select(0, idx_i).view(n_cycles, length, -1)
     x_j = x_flat.index_select(0, idx_j).view(n_cycles, length, -1)
     dx = x_j - x_i
-    return (s_i * dx).sum(dim=2).sum(dim=1)
+    circ = (s_i * dx).sum(dim=2).sum(dim=1)
+    if not path_length_normalization:
+        return circ
+
+    path_length = dx.norm(dim=2).sum(dim=1).clamp_min(1e-8)
+    return circ / path_length
 
 
 def graph_cycle_estimator(
@@ -58,6 +66,7 @@ def graph_cycle_estimator(
     subset_size: int | None = None,
     generator: torch.Generator | None = None,
     precomputed_score: torch.Tensor | None = None,
+    path_length_normalization: bool = False,
 ) -> tuple[torch.Tensor, dict[int, torch.Tensor]]:
     """Estimate nonlocal graph-cycle consistency loss for M3/M4.
 
@@ -72,6 +81,8 @@ def graph_cycle_estimator(
         subset_size: Optional subset size to reduce compute.
         generator: Optional PRNG generator.
         precomputed_score: Optional precomputed score for ``x``/subset.
+        path_length_normalization: If ``True``, normalizes circulation by
+            per-cycle path length ``Σ||Δx|| + eps`` before squaring.
 
     Returns:
         Tuple ``(mean_energy, per_length)`` where ``per_length`` stores
@@ -133,7 +144,12 @@ def graph_cycle_estimator(
             per_length[l] = zero
             continue
 
-        circ = _circulation_from_cycles(score_flat, x_flat, cycles)
+        circ = _circulation_from_cycles(
+            score_flat,
+            x_flat,
+            cycles,
+            path_length_normalization=path_length_normalization,
+        )
         energy = (circ**2).mean()
         per_length[l] = energy
         values.append(energy)

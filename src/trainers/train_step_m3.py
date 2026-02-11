@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+import math
+from collections import deque
+
 import torch
 
 from src.losses import graph_cycle_estimator, loop_multi_scale_estimator
 from src.sampling.sigma_schedule import sample_training_sigmas
 
 from .common import compute_dsm_for_score
+from .step_utils import (
+    cap_positive_int,
+    cap_subset,
+    is_due,
+    make_noisy_from_clean,
+    regularizer_batch,
+    should_apply_regularizer,
+    take_subset,
+    take_subset_x,
+)
 
 
 def _parse_float_list(value, fallback: list[float]) -> list[float]:
@@ -18,91 +31,6 @@ def _parse_float_list(value, fallback: list[float]) -> list[float]:
         out = [float(v.strip()) for v in value.split(",") if v.strip()]
         return out if out else fallback
     return fallback
-
-
-def _should_apply_regularizer(step: int, cfg: dict) -> bool:
-    """Return whether optional M3 regularizers should run at this step."""
-    freq = int(cfg["loss"].get("reg_freq", cfg["loss"].get("regularizer_every", 1)))
-    return step % max(freq, 1) == 0
-
-
-def _is_due(step: int, freq: int | None) -> bool:
-    """Return whether per-term frequency gate is active at this step."""
-    if freq is None:
-        return True
-    f = max(int(freq), 1)
-    return step % f == 0
-
-
-def _regularizer_batch(
-    x: torch.Tensor,
-    sigma: torch.Tensor,
-    cfg: dict,
-) -> tuple[torch.Tensor, torch.Tensor, float, torch.Tensor | None]:
-    """Select batch slice used by optional M3 regularizers."""
-    if not bool(cfg["loss"].get("reg_low_noise_only", True)):
-        return x, sigma, 1.0, None
-
-    sigma0 = float(cfg["loss"].get("sigma0", cfg["loss"].get("reg_low_noise_threshold", 0.25)))
-    low_mask = sigma <= sigma0
-    low_factor = float(low_mask.float().mean().item())
-    if low_factor <= 0.0:
-        return x[:0], sigma[:0], 0.0, low_mask
-    return x[low_mask], sigma[low_mask], low_factor, low_mask
-
-
-def _take_subset(
-    x: torch.Tensor,
-    sigma: torch.Tensor,
-    subset_size: int | None,
-    score: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-    """Optionally sample a random batch subset for expensive regularizers."""
-    if subset_size is None:
-        return x, sigma, score
-    n = int(subset_size)
-    if n <= 0 or x.shape[0] <= n:
-        return x, sigma, score
-    idx = torch.randperm(x.shape[0], device=x.device)[:n]
-    score_sub = None if score is None else score[idx]
-    return x[idx], sigma[idx], score_sub
-
-
-def _take_subset_x(x: torch.Tensor, subset_size: int | None) -> torch.Tensor:
-    """Optionally sample a random subset from a batch tensor."""
-    if subset_size is None:
-        return x
-    n = int(subset_size)
-    if n <= 0 or x.shape[0] <= n:
-        return x
-    idx = torch.randperm(x.shape[0], device=x.device)[:n]
-    return x[idx]
-
-
-def _cap_subset(subset_size: int | None, cap: int | None) -> int | None:
-    """Apply optional upper cap to subset size."""
-    if cap is None:
-        return subset_size
-    cap_i = int(cap)
-    if cap_i <= 0:
-        return subset_size
-    if subset_size is None:
-        return cap_i
-    n = int(subset_size)
-    if n <= 0:
-        return subset_size
-    return min(n, cap_i)
-
-
-def _cap_positive_int(value: int, cap: int | None) -> int:
-    """Apply optional positive upper cap to integer value."""
-    base = max(int(value), 1)
-    if cap is None:
-        return base
-    cap_i = int(cap)
-    if cap_i <= 0:
-        return base
-    return min(base, cap_i)
 
 
 def _sample_cycle_sigma(loss_cfg: dict, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
@@ -129,11 +57,43 @@ def _sample_cycle_sigma(loss_cfg: dict, device: torch.device, dtype: torch.dtype
     )
 
 
-def _make_noisy_from_clean(x0: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
-    """Create noisy samples from clean inputs and per-sample sigma."""
-    eps = torch.randn_like(x0)
-    sigma_view = sigma.view(x0.shape[0], *([1] * (x0.ndim - 1)))
-    return x0 + sigma_view * eps
+def _mu2_state(cfg: dict) -> dict:
+    """Get or initialize M3 dynamic-mu2 state attached to config."""
+    loss_cfg = cfg["loss"]
+    window = max(int(loss_cfg.get("update_step", 200)), 1)
+    state = cfg.get("_m3_mu2_state")
+    if not isinstance(state, dict) or int(state.get("window", 0)) != window:
+        start_mu2 = float(loss_cfg.get("start_mu2", loss_cfg.get("mu2", 1.0e-5)))
+        state = {
+            "window": window,
+            "mu2": start_mu2,
+            "dsm_hist": deque(maxlen=window),
+            "cycle_hist": deque(maxlen=window),
+        }
+        cfg["_m3_mu2_state"] = state
+    return state
+
+
+def _update_dynamic_mu2(cfg: dict, dsm_value: float, cycle_value: float) -> float:
+    """Update dynamic mu2 from moving averages of DSM and normalized cycle loss."""
+    loss_cfg = cfg["loss"]
+    state = _mu2_state(cfg)
+    dsm_hist = state["dsm_hist"]
+    cycle_hist = state["cycle_hist"]
+    dsm_hist.append(float(dsm_value))
+    cycle_hist.append(float(cycle_value))
+
+    target_r = float(loss_cfg.get("target_r", 0.01))
+    eps = float(loss_cfg.get("mu2_epsilon", 1.0e-8))
+
+    if len(dsm_hist) >= int(state["window"]):
+        mean_dsm = sum(dsm_hist) / float(len(dsm_hist))
+        mean_cycle = sum(cycle_hist) / float(len(cycle_hist))
+        updated = (target_r * mean_dsm) / (mean_cycle + eps)
+        if math.isfinite(updated) and updated >= 0.0:
+            state["mu2"] = float(updated)
+
+    return float(state["mu2"])
 
 
 def train_step_m3(
@@ -163,16 +123,15 @@ def train_step_m3(
     """
     loss_cfg = cfg["loss"]
     mu1 = float(loss_cfg.get("mu1", loss_cfg.get("mu_loop", 0.0)))
-    mu2 = float(loss_cfg.get("mu2", 0.0))
     objective = str(loss_cfg.get("objective", "dsm_score"))
     sigma_sampling = str(loss_cfg.get("sigma_sampling", "log_uniform"))
     edm_p_mean = float(loss_cfg.get("edm_p_mean", -1.2))
     edm_p_std = float(loss_cfg.get("edm_p_std", 1.2))
     sigma_sample_clamp = bool(loss_cfg.get("sigma_sample_clamp", True))
     sigma_data = float(loss_cfg.get("sigma_data", cfg.get("model", {}).get("preconditioning", {}).get("sigma_data", 0.5)))
-    apply_reg = _should_apply_regularizer(step=step, cfg=cfg)
-    apply_loop = apply_reg and _is_due(step, loss_cfg.get("loop_freq"))
-    apply_cycle = apply_reg and _is_due(step, loss_cfg.get("cycle_freq"))
+    apply_reg = should_apply_regularizer(step=step, cfg=cfg)
+    apply_loop = apply_reg and is_due(step, loss_cfg.get("loop_freq"))
+    apply_cycle = apply_reg and is_due(step, loss_cfg.get("cycle_freq"))
     # Only loop term can reuse DSM score cache.
     need_score_cache = apply_loop and mu1 > 0.0
 
@@ -194,7 +153,7 @@ def train_step_m3(
     x = cache["x"]
     sigma = cache["sigma"]
     score = cache.get("score")
-    x_reg, sigma_reg, low_noise_factor, low_mask = _regularizer_batch(x, sigma, cfg)
+    x_reg, sigma_reg, low_noise_factor, low_mask = regularizer_batch(x, sigma, cfg)
     score_reg = None
     if score is not None:
         score_reg = score if low_mask is None else score[low_mask]
@@ -205,8 +164,8 @@ def train_step_m3(
     if apply_reg and low_noise_factor > 0.0:
         if apply_loop and mu1 > 0.0 and x_reg.shape[0] > 0:
             loop_subset = loss_cfg.get("loop_subset", loss_cfg.get("cycle_subset"))
-            loop_subset = _cap_subset(loop_subset, loss_cfg.get("loop_subset_cap"))
-            x_loop, sigma_loop, score_loop = _take_subset(x_reg, sigma_reg, loop_subset, score=score_reg)
+            loop_subset = cap_subset(loop_subset, loss_cfg.get("loop_subset_cap"))
+            x_loop, sigma_loop, score_loop = take_subset(x_reg, sigma_reg, loop_subset, score=score_reg)
             delta_set = _parse_float_list(loss_cfg.get("delta_set"), fallback=[float(loss_cfg.get("loop_delta", 0.01))])
             loop_multi, _ = loop_multi_scale_estimator(
                 score_fn=model,
@@ -217,27 +176,27 @@ def train_step_m3(
                 base_score=score_loop,
             )
 
-        if apply_cycle and mu2 > 0.0:
-            cycle_subset = _cap_subset(loss_cfg.get("cycle_subset"), loss_cfg.get("cycle_subset_cap"))
+        if apply_cycle:
+            cycle_subset = cap_subset(loss_cfg.get("cycle_subset"), loss_cfg.get("cycle_subset_cap"))
             cycle_same_sigma = bool(loss_cfg.get("cycle_same_sigma", True))
             score_cycle = None
 
             if cycle_same_sigma:
-                x0_cycle = _take_subset_x(x0, cycle_subset)
+                x0_cycle = take_subset_x(x0, cycle_subset)
                 if x0_cycle.shape[0] >= 3:
                     sigma_shared = _sample_cycle_sigma(loss_cfg=loss_cfg, device=x0_cycle.device, dtype=x0_cycle.dtype)
                     sigma_cycle = sigma_shared.expand(x0_cycle.shape[0])
-                    x_cycle = _make_noisy_from_clean(x0_cycle, sigma_cycle)
+                    x_cycle = make_noisy_from_clean(x0_cycle, sigma_cycle)
                 else:
                     x_cycle = x0_cycle
                     sigma_cycle = torch.empty((0,), device=x0.device, dtype=x0.dtype)
             else:
-                x_cycle, sigma_cycle, score_cycle = _take_subset(x_reg, sigma_reg, cycle_subset, score=score_reg)
+                x_cycle, sigma_cycle, score_cycle = take_subset(x_reg, sigma_reg, cycle_subset, score=score_reg)
 
             if x_cycle.shape[0] >= 3:
                 with torch.no_grad():
                     features = feature_encoder(x_cycle.detach())
-                cycle_samples = _cap_positive_int(
+                cycle_samples = cap_positive_int(
                     int(loss_cfg.get("cycle_samples", 16)),
                     loss_cfg.get("cycle_samples_cap"),
                 )
@@ -251,8 +210,14 @@ def train_step_m3(
                     num_cycles=cycle_samples,
                     subset_size=None,
                     precomputed_score=score_cycle,
+                    path_length_normalization=True,
                 )
 
+    mu2 = _update_dynamic_mu2(
+        cfg=cfg,
+        dsm_value=float(dsm.detach().item()),
+        cycle_value=float(cycle.detach().item()),
+    )
     total = dsm + (mu1 * low_noise_factor) * loop_multi + (mu2 * low_noise_factor) * cycle
 
     metrics = {
@@ -263,5 +228,6 @@ def train_step_m3(
         "loss_loop_multi": float(loop_multi.detach().item()),
         "loss_cycle": float(cycle.detach().item()),
         "loss_match": 0.0,
+        "mu2_dynamic": float(mu2),
     }
     return total, metrics

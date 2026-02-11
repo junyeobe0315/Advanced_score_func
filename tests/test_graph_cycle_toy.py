@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from src.losses.graph_cycle import graph_cycle_estimator
+from src.losses.graph_cycle import _circulation_from_cycles, graph_cycle_estimator
 
 
 def test_graph_cycle_energy_distinguishes_rotational_field() -> None:
@@ -43,3 +43,30 @@ def test_graph_cycle_energy_distinguishes_rotational_field() -> None:
     )
 
     assert e_rot.item() > e_cons.item() + 1e-6
+
+
+def test_cycle_path_length_normalization_reduces_scale_sensitivity() -> None:
+    """Normalized circulation should stay stable when geometry is uniformly scaled."""
+    score = torch.tensor(
+        [
+            [1.0, 0.0],
+            [1.0, 1.0],
+            [0.0, 1.0],
+        ]
+    )
+    x = torch.tensor(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 1.0],
+        ]
+    )
+    cycles = torch.tensor([[0, 1, 2]], dtype=torch.long)
+
+    raw = _circulation_from_cycles(score, x, cycles, path_length_normalization=False)
+    raw_scaled = _circulation_from_cycles(score, 10.0 * x, cycles, path_length_normalization=False)
+    norm = _circulation_from_cycles(score, x, cycles, path_length_normalization=True)
+    norm_scaled = _circulation_from_cycles(score, 10.0 * x, cycles, path_length_normalization=True)
+
+    assert torch.allclose(raw_scaled, 10.0 * raw, atol=1e-6, rtol=1e-6)
+    assert torch.allclose(norm_scaled, norm, atol=1e-6, rtol=1e-6)
