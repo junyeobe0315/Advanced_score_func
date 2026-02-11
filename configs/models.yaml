@@ -1,0 +1,662 @@
+bases:
+  image:
+    defaults:
+      model:
+        variant: baseline
+        type: unet
+        base_channels: 48
+        channel_mults:
+        - 1
+        - 2
+        - 2
+        num_res_blocks: 1
+        attn_resolutions:
+        - 16
+        sigma_embed_dim: 96
+        dropout: 0.1
+        hybrid:
+          high_type: unet
+          low_type: potential_unet
+      loss:
+        weight_mode: sigma2
+        sigma_min: 0.002
+        sigma_max: 80.0
+        lambda_sym: 0.0
+        mu_loop: 0.0
+        reg_k: 1
+        reg_freq: 4
+        reg_low_noise_only: true
+        reg_low_noise_threshold: 0.2
+        loop_delta: 0.008
+        loop_sparse_ratio: 0.1
+        sigma0: 1.0
+        lambda0: 0.03
+        mu1: 0.03
+        mu2: 0.03
+        alpha: 0.03
+        beta: 0.015
+        sigma_c: 1.0
+        reg_sym_method: auto_fast
+        reg_sym_eps_fd: 0.001
+        delta_set:
+        - 0.0015
+        - 0.003
+        - 0.006
+        cycle_knn_k: 8
+        cycle_lengths:
+        - 3
+        - 4
+        - 5
+        cycle_samples: 16
+        cycle_subset: 64
+        cycle_freq: 2
+        boundary_freq: 2
+        boundary_bandwidth: 0.1
+    model_presets:
+      m0:
+        experiment:
+          model_id: M0
+        model:
+          variant: baseline
+          type: unet
+        loss:
+          lambda_sym: 0.0
+          mu_loop: 0.0
+          mu1: 0.0
+          mu2: 0.0
+          alpha: 0.0
+          beta: 0.0
+      m1:
+        experiment:
+          model_id: M1
+        model:
+          variant: reg
+          type: unet
+        loss:
+          lambda_sym: 0.03
+          mu_loop: 0.0
+          reg_k: 1
+          reg_freq: 4
+      m2:
+        experiment:
+          model_id: M2
+        model:
+          variant: struct
+          type: potential_unet
+        loss:
+          lambda_sym: 0.0
+          mu_loop: 0.0
+          mu1: 0.0
+          mu2: 0.0
+      m3:
+        experiment:
+          model_id: M3
+        model:
+          variant: baseline
+          type: unet
+        loss:
+          lambda_sym: 0.0
+          mu_loop: 0.0
+      m4:
+        experiment:
+          model_id: M4
+        model:
+          variant: baseline
+          type: unet
+          hybrid:
+            high_type: unet
+            low_type: potential_unet
+        loss:
+          mu2: 0.0
+  toy:
+    defaults:
+      model:
+        variant: baseline
+        type: mlp
+        hidden_dim: 192
+        depth: 3
+        sigma_embed_dim: 128
+        channels: 1
+        preconditioning:
+          type: edm
+          sigma_data: 0.5
+          sigma_eps: 1.0e-05
+        hybrid:
+          high_type: mlp
+          low_type: mlp_potential
+      loss:
+        objective: edm_denoiser
+        sigma_sampling: edm_lognormal
+        edm_p_mean: -1.2
+        edm_p_std: 1.2
+        sigma_sample_clamp: true
+        sigma_data: 0.5
+        weight_mode: sigma2
+        sigma_min: 0.01
+        sigma_max: 2.0
+        lambda_sym: 0.0
+        mu_loop: 0.0
+        reg_k: 1
+        reg_freq: 1
+        reg_low_noise_only: true
+        reg_low_noise_threshold: 0.25
+        loop_delta: 0.03
+        loop_sparse_ratio: 1.0
+        sigma0: 0.25
+        lambda0: 0.2
+        mu1: 0.2
+        mu2: 0.2
+        alpha: 0.2
+        beta: 0.1
+        sigma_c: 0.25
+        reg_sym_method: auto_fast
+        reg_sym_eps_fd: 0.001
+        delta_set:
+        - 0.02
+        - 0.05
+        - 0.1
+        cycle_knn_k: 8
+        cycle_lengths:
+        - 3
+        - 4
+        - 5
+        cycle_samples: 64
+        cycle_subset: null
+    model_presets:
+      m0:
+        experiment:
+          model_id: M0
+        model:
+          variant: baseline
+          type: mlp
+        loss:
+          lambda_sym: 0.0
+          mu_loop: 0.0
+          mu1: 0.0
+          mu2: 0.0
+          alpha: 0.0
+          beta: 0.0
+      m1:
+        experiment:
+          model_id: M1
+        model:
+          variant: reg
+          type: mlp
+        loss:
+          lambda_sym: 0.2
+          mu_loop: 0.0
+          reg_k: 2
+          reg_freq: 2
+          reg_sym_method: jvp_vjp
+          reg_sym_variant: qcsbm_trace
+          reg_sym_probe_dist: rademacher
+          reg_sym_scale_sigma2: true
+          reg_low_noise_only: false
+      m2:
+        experiment:
+          model_id: M2
+        model:
+          variant: struct
+          type: mlp_potential
+        loss:
+          lambda_sym: 0.0
+          mu_loop: 0.0
+          mu1: 0.0
+          mu2: 0.0
+      m3:
+        experiment:
+          model_id: M3
+        model:
+          variant: baseline
+          type: mlp
+        loss:
+          lambda_sym: 0.0
+          mu_loop: 0.0
+          mu1: 0.0
+          mu2: 0.0015
+          loop_subset: 8
+          cycle_subset: 64
+          cycle_samples: 32
+          cycle_knn_k: 8
+          reg_freq: 2
+          loop_freq: 2
+          cycle_freq: 16
+          reg_low_noise_only: false
+          cycle_same_sigma: true
+          cycle_lengths: [3, 4]
+          delta_set: [0.02, 0.05, 0.1]
+
+      m4:
+        experiment:
+          model_id: M4
+        model:
+          variant: baseline
+          type: mlp
+          hybrid:
+            high_type: mlp
+            low_type: mlp_potential
+            low_hidden_dim: 96
+            low_depth: 2
+        loss:
+          alpha: 0.1
+          beta: 0.006
+          mu2: 0.0
+          boundary_subset: 32
+          cycle_subset: 32
+          cycle_samples: 16
+          cycle_knn_k: 8
+          cycle_lengths: [3, 4]
+          reg_freq: 1
+          match_freq: 1
+          cycle_freq: 16
+          cycle_same_sigma: true
+          sigma_c: 0.3
+          boundary_bandwidth: 0.1
+datasets:
+  toy:
+    base: toy
+  mnist:
+    base: image
+    defaults:
+      model:
+        base_channels: 32
+        attn_resolutions:
+        - 14
+        dropout: 0.0
+        preconditioning:
+          type: edm
+          sigma_data: 0.5
+          sigma_eps: 1.0e-05
+        hybrid:
+          low_base_channels: 32
+      loss:
+        objective: edm_denoiser
+        sigma_sampling: edm_lognormal
+        edm_p_mean: -1.2
+        edm_p_std: 1.2
+        sigma_sample_clamp: true
+        sigma_data: 0.5
+        sigma_max: 40.0
+        reg_freq: 1
+        loop_delta: 0.01
+        loop_sparse_ratio: 0.25
+        sigma0: 0.5
+        lambda0: 0.05
+        mu1: 0.05
+        mu2: 0.05
+        alpha: 0.05
+        beta: 0.025
+        sigma_c: 0.5
+        delta_set:
+        - 0.002
+        - 0.004
+        - 0.008
+        cycle_samples: 32
+    model_presets:
+      m1:
+        loss:
+          lambda_sym: 0.05
+          reg_freq: 1
+          reg_sym_method: jvp_vjp
+          reg_sym_variant: qcsbm_trace
+          reg_sym_probe_dist: rademacher
+          reg_sym_scale_sigma2: true
+          reg_low_noise_only: false
+      m2:
+        model:
+          base_channels: 32
+      m3:
+        loss:
+          mu1: 0.012
+          mu2: 0.003
+          loop_subset: 8
+          cycle_subset: 8
+          cycle_samples: 8
+          cycle_knn_k: 4
+          reg_freq: 4
+          loop_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+      m4:
+        model:
+          hybrid:
+            low_base_channels: 32
+        loss:
+          alpha: 0.012
+          beta: 0.006
+          mu2: 0.0
+          boundary_subset: 8
+          cycle_subset: 4
+          cycle_samples: 4
+          reg_freq: 4
+          match_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+  cifar10:
+    base: image
+    defaults:
+      model:
+        preconditioning:
+          type: edm
+          sigma_data: 0.5
+          sigma_eps: 1.0e-05
+        hybrid:
+          low_base_channels: 48
+      loss:
+        objective: edm_denoiser
+        sigma_sampling: edm_lognormal
+        edm_p_mean: -1.2
+        edm_p_std: 1.2
+        sigma_sample_clamp: true
+        sigma_data: 0.5
+    model_presets:
+      m1:
+        loss:
+          reg_sym_method: jvp_vjp
+          reg_sym_variant: qcsbm_trace
+          reg_sym_probe_dist: rademacher
+          reg_sym_scale_sigma2: true
+          reg_low_noise_only: false
+      m3:
+        loss:
+          mu1: 0.012
+          mu2: 0.003
+          loop_subset: 8
+          cycle_subset: 8
+          cycle_samples: 8
+          cycle_knn_k: 4
+          reg_freq: 4
+          loop_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+      m4:
+        loss:
+          alpha: 0.012
+          beta: 0.006
+          mu2: 0.0
+          boundary_subset: 8
+          cycle_subset: 4
+          cycle_samples: 4
+          reg_freq: 4
+          match_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+  imagenet128:
+    base: image
+    defaults:
+      model:
+        base_channels: 40
+        channel_mults:
+        - 1
+        - 1
+        - 2
+        - 2
+        - 2
+        hybrid:
+          low_base_channels: 40
+      loss:
+        loop_delta: 0.006
+        loop_sparse_ratio: 0.05
+        cycle_subset: 32
+    model_presets:
+      m2:
+        model:
+          base_channels: 40
+      m3:
+        loss:
+          mu1: 0.012
+          mu2: 0.003
+          loop_subset: 8
+          cycle_subset: 8
+          cycle_samples: 8
+          cycle_knn_k: 4
+          reg_freq: 4
+          loop_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+      m4:
+        model:
+          hybrid:
+            low_base_channels: 40
+        loss:
+          alpha: 0.012
+          beta: 0.006
+          mu2: 0.0
+          boundary_subset: 8
+          cycle_subset: 4
+          cycle_samples: 4
+          reg_freq: 4
+          match_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+  imagenet256:
+    base: image
+    defaults:
+      model:
+        base_channels: 28
+        channel_mults:
+        - 1
+        - 1
+        - 2
+        - 2
+        - 2
+        - 2
+        hybrid:
+          low_base_channels: 28
+      loss:
+        reg_freq: 8
+        loop_delta: 0.004
+        loop_sparse_ratio: 0.03
+        delta_set:
+        - 0.001
+        - 0.002
+        - 0.004
+        cycle_samples: 12
+        cycle_subset: 16
+    model_presets:
+      m1:
+        loss:
+          reg_freq: 8
+      m2:
+        model:
+          base_channels: 28
+      m3:
+        loss:
+          mu1: 0.012
+          mu2: 0.003
+          loop_subset: 8
+          cycle_subset: 8
+          cycle_samples: 8
+          cycle_knn_k: 4
+          reg_freq: 4
+          loop_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+      m4:
+        model:
+          hybrid:
+            low_base_channels: 28
+        loss:
+          alpha: 0.012
+          beta: 0.006
+          mu2: 0.0
+          boundary_subset: 8
+          cycle_subset: 4
+          cycle_samples: 4
+          reg_freq: 4
+          match_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+  imagenet512:
+    base: image
+    defaults:
+      model:
+        base_channels: 20
+        channel_mults:
+        - 1
+        - 1
+        - 2
+        - 2
+        - 2
+        - 2
+        - 2
+        hybrid:
+          low_base_channels: 20
+      loss:
+        reg_freq: 8
+        loop_delta: 0.003
+        loop_sparse_ratio: 0.02
+        lambda0: 0.02
+        mu1: 0.02
+        mu2: 0.02
+        alpha: 0.02
+        beta: 0.01
+        delta_set:
+        - 0.0008
+        - 0.0015
+        - 0.003
+        cycle_samples: 8
+        cycle_subset: 8
+    model_presets:
+      m1:
+        loss:
+          lambda_sym: 0.02
+          reg_freq: 8
+      m2:
+        model:
+          base_channels: 20
+      m3:
+        loss:
+          mu1: 0.012
+          mu2: 0.003
+          loop_subset: 8
+          cycle_subset: 8
+          cycle_samples: 8
+          cycle_knn_k: 4
+          reg_freq: 4
+          loop_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+      m4:
+        model:
+          hybrid:
+            low_base_channels: 20
+        loss:
+          alpha: 0.012
+          beta: 0.006
+          mu2: 0.0
+          boundary_subset: 8
+          cycle_subset: 4
+          cycle_samples: 4
+          reg_freq: 4
+          match_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+  lsun256:
+    base: image
+    defaults:
+      model:
+        base_channels: 28
+        channel_mults:
+        - 1
+        - 1
+        - 2
+        - 2
+        - 2
+        - 2
+        hybrid:
+          low_base_channels: 28
+      loss:
+        reg_freq: 8
+        loop_delta: 0.004
+        loop_sparse_ratio: 0.03
+        delta_set:
+        - 0.001
+        - 0.002
+        - 0.004
+        cycle_samples: 12
+        cycle_subset: 16
+    model_presets:
+      m1:
+        loss:
+          reg_freq: 8
+      m2:
+        model:
+          base_channels: 28
+      m3:
+        loss:
+          mu1: 0.012
+          mu2: 0.003
+          loop_subset: 8
+          cycle_subset: 8
+          cycle_samples: 8
+          cycle_knn_k: 4
+          reg_freq: 4
+          loop_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+      m4:
+        model:
+          hybrid:
+            low_base_channels: 28
+        loss:
+          alpha: 0.012
+          beta: 0.006
+          mu2: 0.0
+          boundary_subset: 8
+          cycle_subset: 4
+          cycle_samples: 4
+          reg_freq: 4
+          match_freq: 4
+          cycle_freq: 16
+          cycle_same_sigma: true
+  ffhq256:
+    base: image
+    defaults:
+      model:
+        channel_mults:
+        - 1
+        - 1
+        - 2
+        - 2
+        - 4
+        - 4
+        num_res_blocks: 2
+        sigma_embed_dim: 128
+        hybrid:
+          low_base_channels: 40
+      loss:
+        reg_freq: 8
+        loop_delta: 0.004
+        loop_sparse_ratio: 0.03
+        delta_set:
+        - 0.001
+        - 0.002
+        - 0.004
+        cycle_samples: 12
+        cycle_subset: 16
+    model_presets:
+      m1:
+        loss:
+          reg_freq: 8
+      m2:
+        model:
+          base_channels: 40
+        train:
+          grad_accum_steps: 8
+        compute:
+          compute_limited: true
+          tier: main_limited
+      m3:
+        loss:
+          mu1: 0.03
+          mu2: 0.03
+      m4:
+        model:
+          hybrid:
+            low_base_channels: 40
+        loss:
+          alpha: 0.03
+          beta: 0.015
+          sigma_c: 1.0
+          mu2: 0.0
