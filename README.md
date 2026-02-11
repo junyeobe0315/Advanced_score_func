@@ -24,14 +24,36 @@ pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision
 pip install -r requirements.txt
 ```
 
+## Cloud Quickstart (git pull -> train)
+
+After cloning/pulling on a fresh cloud VM, run:
+
+```bash
+git pull
+conda env create -f environment.yml
+conda activate advance_score
+```
+
+Then launch MNIST + CIFAR-10 training in one command:
+
+```bash
+python main.py --dataset='[mnist,cifar10]' --seeds='[0]' --models='[m0,m1,m2,m3,m4]' --ablation=none --mode=train
+```
+
+Optional command check without actual training:
+
+```bash
+python main.py --dataset='[mnist,cifar10]' --seeds='[0]' --models='[m3]' --ablation=none --mode=train --dry_run
+```
+
 ## Training / Evaluation CLI
 
 ```bash
 # unified runner (recommended)
-python main.py --dataset=toy --seeds=[0,1,2] --models=[m0,m1,m2,m3,m4] --mode=both --toy_report
+python main.py --dataset=toy --seeds=[0,1,2] --models=[m0,m1,m2,m3,m4] --ablation=none --mode=both --toy_report
 
 # low-level entrypoints
-python -m src.main_train --config configs/cifar10/dataset.yaml --model m3 --seed 0
+python -m src.main_train --config configs/experiment.yaml --dataset cifar10 --model m3 --ablation none --seed 0
 python -m src.main_eval --run_dir runs/cifar10/M3/seed0 --nfe_list 8,18,32,64,128
 ```
 
@@ -57,15 +79,18 @@ Artifacts per run:
 ## Important Files
 
 - `main.py`: unified experiment orchestrator (`train/eval/report` in one command)
-- `configs/<dataset>/dataset.yaml`: dataset/runtime/training defaults
-- `configs/<dataset>/models.yaml`: model-related defaults + model presets (`m0..m4`)
+- `configs/experiment.yaml`: shared training entrypoint (`--config` target)
+- `configs/<dataset>/experiment.yaml`: dataset-specific wrapper entrypoint (optional)
+- `configs/dataset.yaml`: consolidated dataset config (`base` + per-dataset overrides)
+- `configs/models.yaml`: consolidated model config (`bases` + per-dataset overrides)
+- `configs/<dataset>/ablations/*.yaml`: optional post-preset patches (`--ablation`)
 - `src/main_train.py`: single-run trainer entrypoint
 - `src/main_eval.py`: run-directory evaluator
 - `scripts/make_report_tables.py`: aggregate report CSVs
 - `scripts/make_toy_modified_report.py`: toy comparison plots/CSVs
 
 If you need faster toy iteration, start from:
-- `configs/toy/dataset.yaml`:
+- `configs/dataset.yaml` (`datasets.toy`) and `configs/models.yaml` (`datasets.toy`):
   `dataset.batch_size`, `train.selection_eval_every`, `train.selection_eval_nfe`,
   `train.selection_eval_num_samples`, `train.ckpt_every_steps`.
 
@@ -94,19 +119,15 @@ If you need faster toy iteration, start from:
 
 ## 5-Way Config Sets
 
-Each dataset now uses two config files:
-- `dataset.yaml`: dataset/runtime defaults
-- `models.yaml`: model/loss defaults + all model presets (`m0`..`m4`)
+Configs are now unified at repo root:
+- `configs/experiment.yaml`: shared runtime entrypoint (`python -m src.main_train --config configs/experiment.yaml --dataset <name> ...`)
+- `configs/dataset.yaml`: `base` + `datasets.<name>` patch
+- `configs/models.yaml`: `bases.<family>` + `datasets.<name>` patch
+- `configs/<dataset>/ablations/`: optional named patches, selected by `--ablation`
 
 Examples:
-- Toy: `configs/toy/dataset.yaml` + `configs/toy/models.yaml`
-- MNIST: `configs/mnist/dataset.yaml` + `configs/mnist/models.yaml`
-- CIFAR-10: `configs/cifar10/dataset.yaml` + `configs/cifar10/models.yaml`
-- ImageNet-128: `configs/imagenet128/dataset.yaml` + `configs/imagenet128/models.yaml`
-- ImageNet-256: `configs/imagenet256/dataset.yaml` + `configs/imagenet256/models.yaml`
-- ImageNet-512: `configs/imagenet512/dataset.yaml` + `configs/imagenet512/models.yaml`
-- LSUN-256: `configs/lsun256/dataset.yaml` + `configs/lsun256/models.yaml`
-- FFHQ-256: `configs/ffhq256/dataset.yaml` + `configs/ffhq256/models.yaml`
+- Shared entrypoint: `configs/experiment.yaml` (+ `--dataset`)
+- Optional wrappers: `configs/toy/experiment.yaml`, `configs/mnist/experiment.yaml`, ...
 
 ## References (Paper + Code)
 

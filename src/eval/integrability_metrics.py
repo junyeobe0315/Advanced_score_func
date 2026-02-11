@@ -2,25 +2,13 @@ from __future__ import annotations
 
 from typing import Callable, Iterable
 
-import numpy as np
 import torch
 
 from src.losses import graph_cycle_estimator, loop_multi_scale_estimator, reg_sym_estimator
+from src.metrics.sigma_bins import bucket_index, sigma_bin_edges
 
 
 ScoreFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
-
-
-def sigma_bin_edges(sigma_min: float, sigma_max: float, bins: int) -> np.ndarray:
-    """Create logarithmic sigma-bin edges used for sigma-resolved metrics."""
-    return np.exp(np.linspace(np.log(float(sigma_min)), np.log(float(sigma_max)), int(bins) + 1))
-
-
-def _bucket_index(sigmas: torch.Tensor, edges: np.ndarray) -> torch.Tensor:
-    """Assign each sigma value to a logarithmic bin index."""
-    edges_t = torch.tensor(edges, device=sigmas.device, dtype=sigmas.dtype)
-    idx = torch.bucketize(sigmas, edges_t, right=True) - 1
-    return idx.clamp(min=0, max=len(edges) - 2)
 
 
 def _parse_float_list(value, default: list[float]) -> list[float]:
@@ -104,7 +92,7 @@ def integrability_records_by_sigma(
         ``bin,sigma_lo,sigma_hi,count,metric_name,scale_delta,cycle_len,value``.
     """
     edges = sigma_bin_edges(sigma_min=sigma_min, sigma_max=sigma_max, bins=bins)
-    bucket = _bucket_index(sigma, edges)
+    bucket = bucket_index(sigma, edges)
 
     deltas = _parse_float_list(loop_delta_set, default=[0.01])
     lengths = _parse_int_list(cycle_lengths, default=[3, 4, 5])

@@ -58,7 +58,7 @@ datasets:
   toy:
     dataset:
       name: toy
-      batch_size: 128 #seed0,1,2 512
+      batch_size: 512 #seed0,1,2 512
       num_workers: 0
       pin_memory: false
       image_size: null
@@ -81,16 +81,16 @@ datasets:
         centers: null
         stds: null
     train:
-      total_steps: 20000 #seed0,1,2 50000
+      total_steps: 50000 #seed0,1,2 50000
       amp: false
       lr: 0.0001
       ema_decay: 0.999
       log_every: 100
-      ckpt_every_steps: 500 #seed0,1,2 250
+      ckpt_every_steps: 1000 #seed0,1,2 250
       selection_enable: true
       selection_eval_every: 100
       selection_top_k: 3
-      selection_eval_nfe: 64
+      selection_eval_nfe: 128
       selection_eval_num_samples: 2048
       selection_eval_batch_size: 512
       selection_sampler: heun
@@ -113,7 +113,7 @@ datasets:
       precision: fp16
       target_gpu_hours: 2
     loss:
-      start_mu2: 1.0e-03
+      start_mu2: 0.0
   mnist:
     dataset:
       name: mnist
@@ -123,7 +123,7 @@ datasets:
     train:
       total_steps: 120000
       ema_decay: 0.999
-      ckpt_every_steps: 100
+      ckpt_every_steps: 1000
       selection_enable: true
       selection_eval_every: 100
       selection_top_k: 3
@@ -145,7 +145,7 @@ datasets:
     compute:
       target_gpu_hours: 12
     loss:
-      start_mu2: 3.0e-04
+      start_mu2: 0.0
   cifar10:
     dataset:
       name: cifar10

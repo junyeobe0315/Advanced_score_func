@@ -4,32 +4,11 @@ from typing import Callable
 
 import torch
 
+from .common import edm_drift_from_score
 from .sigma_schedule import make_sigma_schedule, sigma_to_tensor
 
 
 ScoreFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
-
-
-def _sigma_view(sigma: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-    """Broadcast per-sample sigma tensor to match ``x`` dimensions."""
-    return sigma.view(sigma.shape[0], *([1] * (x.ndim - 1)))
-
-
-def _edm_drift_from_score(
-    x: torch.Tensor,
-    score: torch.Tensor,
-    sigma: torch.Tensor,
-) -> torch.Tensor:
-    """Compute EDM ODE drift ``(x - D(x,sigma)) / sigma`` from score.
-
-    Notes:
-        Since ``D(x,sigma) = x + sigma^2 * s(x,sigma)``, this is equivalent to
-        ``-sigma * s(x,sigma)``. We keep denoiser form explicitly for clarity
-        and alignment with the EDM update equation.
-    """
-    # Equivalent to (x - (x + sigma^2 * score)) / sigma.
-    sigma_v = _sigma_view(sigma, x)
-    return -sigma_v * score
 
 
 def sample_euler(
@@ -84,7 +63,7 @@ def sample_euler(
             dt = sigma_j - sigma_vals[i]
             with torch.enable_grad():
                 score = score_fn(x.detach(), sigma_i).detach()
-            drift = _edm_drift_from_score(x=x, score=score, sigma=sigma_i)
+            drift = edm_drift_from_score(x=x, score=score, sigma=sigma_i)
             x_next = x + dt * drift
             traj_len += (x_next - x).flatten(start_dim=1).norm(dim=1)
             x = x_next
@@ -97,7 +76,7 @@ def sample_euler(
                 sigma_j = sigma_vals[i + 1]
                 dt = sigma_j - sigma_vals[i]
                 score = score_fn(x, sigma_i)
-                drift = _edm_drift_from_score(x=x, score=score, sigma=sigma_i)
+                drift = edm_drift_from_score(x=x, score=score, sigma=sigma_i)
                 x_next = x + dt * drift
                 traj_len += (x_next - x).flatten(start_dim=1).norm(dim=1)
                 x = x_next

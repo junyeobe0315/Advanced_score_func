@@ -114,6 +114,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dataset", type=str, default="toy", help="toy | mnist | ... | all or list like [toy,mnist]")
     p.add_argument("--seeds", type=str, default="[0,1,2]", help="List format recommended, e.g. [0,1,2]")
     p.add_argument("--models", type=str, default="[m0,m1,m2,m3,m4]", help="List format recommended, e.g. [m0,m3,m4]")
+    p.add_argument("--ablation", type=str, default="none", help="Ablation patch name forwarded to src.main_train")
     p.add_argument("--mode", type=str, choices=["train", "eval", "both"], default="both")
     p.add_argument("--run_root", type=str, default="runs")
     p.add_argument("--nfe_list", type=str, default=None, help="Override NFE list for eval")
@@ -130,12 +131,11 @@ def main() -> None:
     datasets = _parse_datasets(args.dataset)
     models = _parse_models(args.models)
     seeds = _parse_seeds(args.seeds)
+    shared_cfg = Path("configs") / "experiment.yaml"
+    if not shared_cfg.exists():
+        raise FileNotFoundError(f"missing experiment config: {shared_cfg}")
 
     for dataset in datasets:
-        dataset_cfg = Path("configs") / dataset / "dataset.yaml"
-        if not dataset_cfg.exists():
-            raise FileNotFoundError(f"missing dataset config: {dataset_cfg}")
-
         nfe_list = str(args.nfe_list or DEFAULT_NFE_BY_DATASET[dataset])
 
         for seed in seeds:
@@ -146,9 +146,13 @@ def main() -> None:
                         "-m",
                         "src.main_train",
                         "--config",
-                        str(dataset_cfg),
+                        str(shared_cfg),
+                        "--dataset",
+                        dataset,
                         "--model",
                         model,
+                        "--ablation",
+                        str(args.ablation),
                         "--seed",
                         str(seed),
                     ]

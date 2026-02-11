@@ -1,0 +1,11 @@
+loss:
+  alpha: 0.0
+  beta: 0.006
+  mu2: 0.0
+  boundary_subset: 8
+  cycle_subset: 4
+  cycle_samples: 4
+  reg_freq: 4
+  match_freq: 4
+  cycle_freq: 16
+  cycle_same_sigma: true

@@ -1,0 +1,11 @@
+loss:
+  lambda_sym: 0.03
+  mu_loop: 0.0
+  reg_k: 1
+  reg_freq: 4
+  reg_sym_method: jvp_vjp
+  reg_sym_variant: qcsbm_trace
+  reg_sym_probe_dist: rademacher
+  reg_sym_scale_sigma2: true
+  reg_low_noise_only: false
+  loop_delta: 0.004

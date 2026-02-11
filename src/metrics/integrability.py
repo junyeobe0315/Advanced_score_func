@@ -2,25 +2,13 @@ from __future__ import annotations
 
 from typing import Callable
 
-import numpy as np
 import torch
 
 from src.losses import reg_loop_estimator, reg_sym_estimator
+from src.metrics.sigma_bins import bucket_index, sigma_bin_edges
 
 
 ScoreFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
-
-
-def sigma_bin_edges(sigma_min: float, sigma_max: float, bins: int) -> np.ndarray:
-    """Create logarithmic sigma-bin edges."""
-    return np.exp(np.linspace(np.log(sigma_min), np.log(sigma_max), bins + 1))
-
-
-def _bucket_index(sigmas: torch.Tensor, edges: np.ndarray) -> torch.Tensor:
-    """Assign each sigma value to logarithmic bin index."""
-    edges_t = torch.tensor(edges, device=sigmas.device, dtype=sigmas.dtype)
-    idx = torch.bucketize(sigmas, edges_t, right=True) - 1
-    return idx.clamp(min=0, max=len(edges) - 2)
 
 
 def integrability_by_sigma_bins(
@@ -56,7 +44,7 @@ def integrability_by_sigma_bins(
         subset independently to expose noise-level dependence.
     """
     edges = sigma_bin_edges(sigma_min, sigma_max, bins)
-    idx = _bucket_index(sigma, edges)
+    idx = bucket_index(sigma, edges)
 
     out: list[dict[str, float]] = []
     for b in range(bins):

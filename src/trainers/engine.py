@@ -410,6 +410,7 @@ def train(cfg: dict, seed: int | None = None) -> Path:
             "loss_loop": float(loss_metrics.get("loss_loop", 0.0)),
             "loss_loop_multi": float(loss_metrics.get("loss_loop_multi", 0.0)),
             "loss_cycle": float(loss_metrics.get("loss_cycle", 0.0)),
+            "mu2": float(loss_metrics.get("mu2", loss_metrics.get("mu2_dynamic", 0.0))),
             "loss_match": float(loss_metrics.get("loss_match", 0.0)),
             "grad_norm_mean": gstats["grad_norm_mean"],
             "grad_norm_max": gstats["grad_norm_max"],

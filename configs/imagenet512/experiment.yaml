@@ -1,0 +1,5 @@
+dataset_key: imagenet512
+config_sources:
+  datasets: ../dataset.yaml
+  models: ../models.yaml
+  ablations_dir: ablations

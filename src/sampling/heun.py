@@ -4,26 +4,11 @@ from typing import Callable
 
 import torch
 
+from .common import edm_drift_from_score
 from .sigma_schedule import make_sigma_schedule, sigma_to_tensor
 
 
 ScoreFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
-
-
-def _sigma_view(sigma: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-    """Broadcast per-sample sigma tensor to match ``x`` dimensions."""
-    return sigma.view(sigma.shape[0], *([1] * (x.ndim - 1)))
-
-
-def _edm_drift_from_score(
-    x: torch.Tensor,
-    score: torch.Tensor,
-    sigma: torch.Tensor,
-) -> torch.Tensor:
-    """Compute EDM ODE drift ``(x - D(x,sigma)) / sigma`` from score."""
-    # Equivalent to (x - (x + sigma^2 * score)) / sigma.
-    sigma_v = _sigma_view(sigma, x)
-    return -sigma_v * score
 
 
 def sample_heun(
@@ -79,7 +64,7 @@ def sample_heun(
             sigma_i_t = sigma_tensors[i]
             with torch.enable_grad():
                 score_i = score_fn(x.detach(), sigma_i_t).detach()
-            d_cur = _edm_drift_from_score(x=x, score=score_i, sigma=sigma_i_t)
+            d_cur = edm_drift_from_score(x=x, score=score_i, sigma=sigma_i_t)
 
             # Predictor step (Euler) in EDM ODE parameterization.
             x_euler = x + dt * d_cur
@@ -87,7 +72,7 @@ def sample_heun(
                 sigma_j_t = sigma_tensors[i + 1]
                 with torch.enable_grad():
                     score_j = score_fn(x_euler.detach(), sigma_j_t).detach()
-                d_prime = _edm_drift_from_score(x=x_euler, score=score_j, sigma=sigma_j_t)
+                d_prime = edm_drift_from_score(x=x_euler, score=score_j, sigma=sigma_j_t)
                 # Corrector step: average EDM drift at start/end.
                 x_next = x + dt * 0.5 * (d_cur + d_prime)
             else:
@@ -106,14 +91,14 @@ def sample_heun(
 
                 sigma_i_t = sigma_tensors[i]
                 score_i = score_fn(x, sigma_i_t)
-                d_cur = _edm_drift_from_score(x=x, score=score_i, sigma=sigma_i_t)
+                d_cur = edm_drift_from_score(x=x, score=score_i, sigma=sigma_i_t)
 
                 # Predictor step (Euler) in EDM ODE parameterization.
                 x_euler = x + dt * d_cur
                 if sigma_j > 0.0:
                     sigma_j_t = sigma_tensors[i + 1]
                     score_j = score_fn(x_euler, sigma_j_t)
-                    d_prime = _edm_drift_from_score(x=x_euler, score=score_j, sigma=sigma_j_t)
+                    d_prime = edm_drift_from_score(x=x_euler, score=score_j, sigma=sigma_j_t)
                     # Corrector step: average EDM drift at start/end.
                     x_next = x + dt * 0.5 * (d_cur + d_prime)
                 else:

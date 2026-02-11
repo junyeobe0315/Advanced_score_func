@@ -227,6 +227,7 @@ def train_step_m3(
         "loss_loop": float(loop_multi.detach().item()),
         "loss_loop_multi": float(loop_multi.detach().item()),
         "loss_cycle": float(cycle.detach().item()),
+        "mu2": float(mu2),
         "loss_match": 0.0,
         "mu2_dynamic": float(mu2),
     }

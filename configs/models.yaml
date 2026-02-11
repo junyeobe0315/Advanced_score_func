@@ -115,9 +115,9 @@ bases:
       model:
         variant: baseline
         type: mlp
-        hidden_dim: 16 # seed0,1,2 128
-        depth: 2 # seed0,1,2 3
-        sigma_embed_dim: 8 # seed0,1,2 64
+        hidden_dim: 128 # seed0,1,2 128
+        depth: 3 # seed0,1,2 3
+        sigma_embed_dim: 64 # seed0,1,2 64
         channels: 1 
         preconditioning:
           type: edm
@@ -212,21 +212,20 @@ bases:
           variant: baseline
           type: mlp
         loss:
-          lambda_sym: 0.0
-          mu_loop: 0.0
-          mu1: 0.5
-          target_r: 0.1
-          update_step: 200
+          mu1: 0.10
+          target_r: 0.001 # dynamic mu2 based on target_r
+          update_step: 10000
           loop_subset: 8 # seed0,1,2 8
-          cycle_subset: 64 # seed0,1,2 512
-          cycle_samples: 64 # seed0,1,2 512
-          cycle_knn_k: 8 # seed0,1,2 8
+          cycle_subset: 512 # seed0,1,2 512
+          cycle_samples: 256 # seed0,1,2 512
+          cycle_knn_k: 4 # seed0,1,2 8
           reg_freq: 1 # seed0,1,2 1
-          loop_freq: 2  # seed0,1,2 2
+          loop_freq: 1  # seed0,1,2 2
           cycle_freq: 1 # seed0,1,2 1
-          reg_low_noise_only: false # seed0,1,2 false
+          reg_low_noise_only: true # seed0,1,2 false
+          sigma0: 0.18
           cycle_same_sigma: true # seed0,1,2 true
-          cycle_lengths: [3,4,5] # seed0,1,2 [3,4]
+          cycle_lengths: [3] # seed0,1,2 [3,4]
           delta_set: [0.02, 0.05, 0.10] # seed0,1,2 [0.02,0.05,0.1]
 
       m4:
@@ -310,17 +309,20 @@ datasets:
           base_channels: 32
       m3:
         loss:
-          mu1: 0.012
-          target_r: 0.05
-          update_step: 200
+          mu1: 0.10
+          target_r: 0.01
+          update_step: 5000
           loop_subset: 8
-          cycle_subset: 8
-          cycle_samples: 8
+          cycle_subset: 16
+          cycle_samples: 16
           cycle_knn_k: 4
+          cycle_lengths: [3]
           reg_freq: 4
           loop_freq: 4
-          cycle_freq: 16
+          cycle_freq: 4
           cycle_same_sigma: true
+          reg_low_noise_only: true
+          sigma0: 0.5
       m4:
         model:
           hybrid:

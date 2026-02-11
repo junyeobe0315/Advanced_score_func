@@ -1,0 +1,5 @@
+dataset_key: toy
+config_sources:
+  datasets: ../dataset.yaml
+  models: ../models.yaml
+  ablations_dir: ablations

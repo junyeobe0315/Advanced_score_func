@@ -1,0 +1,15 @@
+loss:
+  lambda_sym: 0.0
+  mu_loop: 0.0
+  mu1: 0.012
+  mu2: 0.003
+  loop_subset: 8
+  cycle_subset: 8
+  cycle_samples: 8
+  cycle_knn_k: 4
+  reg_freq: 4
+  loop_freq: 4
+  cycle_freq: 16
+  cycle_same_sigma: true
+  delta_set:
+  - 0.003

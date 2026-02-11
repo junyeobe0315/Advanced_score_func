@@ -7,74 +7,15 @@ from src.models.hybrid_wrapper import HybridWrapper
 from src.sampling.sigma_schedule import sample_training_sigmas
 
 from .common import compute_dsm_for_score
-
-
-def _should_apply_regularizer(step: int, cfg: dict) -> bool:
-    """Return whether optional M4 regularizers should run at this step."""
-    freq = int(cfg["loss"].get("reg_freq", cfg["loss"].get("regularizer_every", 1)))
-    return step % max(freq, 1) == 0
-
-
-def _is_due(step: int, freq: int | None) -> bool:
-    """Return whether per-term frequency gate is active at this step."""
-    if freq is None:
-        return True
-    f = max(int(freq), 1)
-    return step % f == 0
-
-
-def _take_subset_x(x: torch.Tensor, subset_size: int | None) -> torch.Tensor:
-    """Optionally sample a random subset from a batch tensor."""
-    if subset_size is None:
-        return x
-    n = int(subset_size)
-    if n <= 0 or x.shape[0] <= n:
-        return x
-    idx = torch.randperm(x.shape[0], device=x.device)[:n]
-    return x[idx]
-
-
-def _take_subset_batch(
-    x: torch.Tensor,
-    sigma: torch.Tensor,
-    subset_size: int | None,
-    score: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-    """Optionally sample aligned subsets for ``x`` and ``sigma``."""
-    if subset_size is None:
-        return x, sigma, score
-    n = int(subset_size)
-    if n <= 0 or x.shape[0] <= n:
-        return x, sigma, score
-    idx = torch.randperm(x.shape[0], device=x.device)[:n]
-    score_sub = None if score is None else score[idx]
-    return x[idx], sigma[idx], score_sub
-
-
-def _cap_subset(subset_size: int | None, cap: int | None) -> int | None:
-    """Apply optional upper cap to subset size."""
-    if cap is None:
-        return subset_size
-    cap_i = int(cap)
-    if cap_i <= 0:
-        return subset_size
-    if subset_size is None:
-        return cap_i
-    n = int(subset_size)
-    if n <= 0:
-        return subset_size
-    return min(n, cap_i)
-
-
-def _cap_positive_int(value: int, cap: int | None) -> int:
-    """Apply optional positive upper cap to integer value."""
-    base = max(int(value), 1)
-    if cap is None:
-        return base
-    cap_i = int(cap)
-    if cap_i <= 0:
-        return base
-    return min(base, cap_i)
+from .step_utils import (
+    cap_positive_int,
+    cap_subset,
+    is_due,
+    make_noisy_from_clean,
+    should_apply_regularizer,
+    take_subset,
+    take_subset_x,
+)
 
 
 def _sample_cycle_sigma(
@@ -100,13 +41,6 @@ def _sample_cycle_sigma(
         edm_p_std=float(loss_cfg.get("edm_p_std", 1.2)),
         clamp=bool(loss_cfg.get("sigma_sample_clamp", True)),
     )
-
-
-def _make_noisy_from_clean(x0: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
-    """Create noisy samples from clean inputs and per-sample sigma."""
-    eps = torch.randn_like(x0)
-    sigma_view = sigma.view(x0.shape[0], *([1] * (x0.ndim - 1)))
-    return x0 + sigma_view * eps
 
 
 def train_step_m4(
@@ -146,9 +80,9 @@ def train_step_m4(
     edm_p_std = float(loss_cfg.get("edm_p_std", 1.2))
     sigma_sample_clamp = bool(loss_cfg.get("sigma_sample_clamp", True))
     sigma_data = float(loss_cfg.get("sigma_data", cfg.get("model", {}).get("preconditioning", {}).get("sigma_data", 0.5)))
-    apply_reg = _should_apply_regularizer(step=step, cfg=cfg)
-    apply_boundary = apply_reg and _is_due(step, loss_cfg.get("match_freq", loss_cfg.get("boundary_freq")))
-    apply_cycle = apply_reg and _is_due(step, loss_cfg.get("cycle_freq"))
+    apply_reg = should_apply_regularizer(step=step, cfg=cfg)
+    apply_boundary = apply_reg and is_due(step, loss_cfg.get("match_freq", loss_cfg.get("boundary_freq")))
+    apply_cycle = apply_reg and is_due(step, loss_cfg.get("cycle_freq"))
     cycle_same_sigma = bool(loss_cfg.get("cycle_same_sigma", True))
     # Reuse DSM score cache for cycle path when sampling from the same batch.
     need_score_cache = apply_cycle and beta > 0.0 and (not cycle_same_sigma)
@@ -178,10 +112,10 @@ def train_step_m4(
     if apply_reg:
         if apply_boundary and alpha > 0.0:
             boundary_subset = loss_cfg.get("boundary_subset", loss_cfg.get("cycle_subset"))
-            boundary_subset = _cap_subset(boundary_subset, loss_cfg.get("boundary_subset_cap"))
+            boundary_subset = cap_subset(boundary_subset, loss_cfg.get("boundary_subset_cap"))
             # Match branches near sigma_c on freshly noised clean points
             # to better approximate E_{x, t≈t_c}.
-            x_match = _take_subset_x(x0, boundary_subset)
+            x_match = take_subset_x(x0, boundary_subset)
             match = boundary_match_estimator(
                 model=model,
                 x=x_match,
@@ -192,15 +126,15 @@ def train_step_m4(
             )
 
         if apply_cycle and beta > 0.0:
-            cycle_subset = _cap_subset(loss_cfg.get("cycle_subset"), loss_cfg.get("cycle_subset_cap"))
+            cycle_subset = cap_subset(loss_cfg.get("cycle_subset"), loss_cfg.get("cycle_subset_cap"))
             score_cycle = None
 
             if cycle_same_sigma:
-                x0_cycle = _take_subset_x(x0, cycle_subset)
+                x0_cycle = take_subset_x(x0, cycle_subset)
                 if x0_cycle.shape[0] >= 3:
                     sigma_shared = _sample_cycle_sigma(loss_cfg=loss_cfg, sigma_c=sigma_c, device=x0_cycle.device, dtype=x0_cycle.dtype)
                     sigma_cycle = sigma_shared.expand(x0_cycle.shape[0])
-                    x_cycle = _make_noisy_from_clean(x0_cycle, sigma_cycle)
+                    x_cycle = make_noisy_from_clean(x0_cycle, sigma_cycle)
                 else:
                     x_cycle = x0_cycle
                     sigma_cycle = torch.empty((0,), device=x0.device, dtype=x0.dtype)
@@ -209,7 +143,7 @@ def train_step_m4(
                 x_low = x[low_mask]
                 sigma_low = sigma[low_mask]
                 score_low = None if score is None else score[low_mask]
-                x_cycle, sigma_cycle, score_cycle = _take_subset_batch(
+                x_cycle, sigma_cycle, score_cycle = take_subset(
                     x_low,
                     sigma_low,
                     cycle_subset,
@@ -219,7 +153,7 @@ def train_step_m4(
             if x_cycle.shape[0] >= 3:
                 with torch.no_grad():
                     features = feature_encoder(x_cycle.detach())
-                cycle_samples = _cap_positive_int(
+                cycle_samples = cap_positive_int(
                     int(loss_cfg.get("cycle_samples", 16)),
                     loss_cfg.get("cycle_samples_cap"),
                 )

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +20,10 @@ if str(ROOT) not in sys.path:
 from src.data import sample_real_data
 from src.data.toy import toy_mixture_parameters
 from src.eval import generate_samples_batched
+from src.metrics.toy_stats import mmd_rbf as _mmd_rbf
+from src.metrics.toy_stats import safe_float as _safe_float
+from src.metrics.toy_stats import toy_gmm_logpdf_mean as _toy_logpdf_mean
+from src.metrics.toy_stats import toy_mode_stats as _mode_stats
 from src.models import build_model, score_fn_from_model
 from src.utils.checkpoint import latest_checkpoint, load_checkpoint
 from src.utils.config import ensure_experiment_defaults, resolve_model_id
@@ -55,14 +58,6 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _safe_float(x: Any) -> float:
-    try:
-        out = float(x)
-    except Exception:
-        return float("nan")
-    return out if math.isfinite(out) else float("nan")
-
-
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
@@ -78,16 +73,6 @@ def _extract_step(path: Path) -> int:
     return int(token)
 
 
-def _toy_logpdf_mean(samples: np.ndarray, centers: np.ndarray, stds: np.ndarray) -> float:
-    diff = samples[:, None, :] - centers[None, :, :]
-    sq = np.sum(diff * diff, axis=2)
-    dim = int(samples.shape[1])
-    var = np.maximum(stds[None, :] ** 2, 1.0e-12)
-    coef = np.power(2.0 * np.pi * var, -0.5 * float(dim))
-    pdf = np.mean(coef * np.exp(-0.5 * sq / var), axis=1)
-    return float(np.mean(np.log(pdf + 1.0e-12)))
-
-
 def _toy_pdf_grid(centers: np.ndarray, stds: np.ndarray, xlim: tuple[float, float], ylim: tuple[float, float]):
     gx = np.linspace(xlim[0], xlim[1], 220)
     gy = np.linspace(ylim[0], ylim[1], 220)
@@ -99,38 +84,6 @@ def _toy_pdf_grid(centers: np.ndarray, stds: np.ndarray, xlim: tuple[float, floa
     coef = np.power(2.0 * np.pi * var, -1.0)
     pdf = np.mean(coef * np.exp(-0.5 * sq / var), axis=1).reshape(xx.shape)
     return xx, yy, pdf
-
-
-def _mmd_rbf(x: np.ndarray, y: np.ndarray, max_n: int = 1200) -> float:
-    rng = np.random.default_rng(123)
-    if x.shape[0] > max_n:
-        x = x[rng.choice(x.shape[0], size=max_n, replace=False)]
-    if y.shape[0] > max_n:
-        y = y[rng.choice(y.shape[0], size=max_n, replace=False)]
-    z = np.concatenate([x, y], axis=0)
-    d2 = np.sum((z[:, None, :] - z[None, :, :]) ** 2, axis=2)
-    med = np.median(d2[d2 > 0]) if np.any(d2 > 0) else 1.0
-    gamma = 1.0 / max(float(med), 1.0e-6)
-
-    xx = np.exp(-gamma * np.sum((x[:, None, :] - x[None, :, :]) ** 2, axis=2))
-    yy = np.exp(-gamma * np.sum((y[:, None, :] - y[None, :, :]) ** 2, axis=2))
-    xy = np.exp(-gamma * np.sum((x[:, None, :] - y[None, :, :]) ** 2, axis=2))
-    m, n = x.shape[0], y.shape[0]
-    mmd2 = (xx.sum() - np.trace(xx)) / (m * (m - 1) + 1.0e-12)
-    mmd2 += (yy.sum() - np.trace(yy)) / (n * (n - 1) + 1.0e-12)
-    mmd2 -= 2.0 * xy.mean()
-    return float(max(mmd2, 0.0))
-
-
-def _mode_stats(samples: np.ndarray, centers: np.ndarray) -> tuple[int, float]:
-    d2 = np.sum((samples[:, None, :] - centers[None, :, :]) ** 2, axis=2)
-    idx = np.argmin(d2, axis=1)
-    counts = np.bincount(idx, minlength=centers.shape[0]).astype(np.float64)
-    covered = int(np.sum(counts > 0))
-    probs = counts / max(np.sum(counts), 1.0)
-    entropy = -np.sum(probs[probs > 0] * np.log(probs[probs > 0]))
-    entropy_norm = float(entropy / max(np.log(float(centers.shape[0])), 1.0e-12))
-    return covered, entropy_norm
 
 
 def _ema(y: np.ndarray, alpha: float) -> np.ndarray:

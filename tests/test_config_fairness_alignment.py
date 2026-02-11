@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.utils.config import load_config_with_model
+from src.utils.config import load_experiment_config
 
 
 def _repo_root() -> Path:
@@ -37,10 +37,10 @@ def _assert_common_sigma_fields(m0: dict, mx: dict) -> None:
 
 def test_mnist_m0_m1_m2_alignment() -> None:
     root = _repo_root()
-    base = root / "configs/mnist/dataset.yaml"
-    m0 = load_config_with_model(base, model="m0")
-    m1 = load_config_with_model(base, model="m1")
-    m2 = load_config_with_model(base, model="m2")
+    base = root / "configs/mnist/experiment.yaml"
+    m0 = load_experiment_config(base, model="m0", ablation="none")
+    m1 = load_experiment_config(base, model="m1", ablation="none")
+    m2 = load_experiment_config(base, model="m2", ablation="none")
 
     assert int(m1["dataset"]["batch_size"]) == int(m0["dataset"]["batch_size"])
     assert int(m1["train"]["grad_accum_steps"]) == int(m0["train"]["grad_accum_steps"])
@@ -59,10 +59,10 @@ def test_mnist_m0_m1_m2_alignment() -> None:
 
 def test_cifar10_m0_m1_m2_alignment() -> None:
     root = _repo_root()
-    base = root / "configs/cifar10/dataset.yaml"
-    m0 = load_config_with_model(base, model="m0")
-    m1 = load_config_with_model(base, model="m1")
-    m2 = load_config_with_model(base, model="m2")
+    base = root / "configs/cifar10/experiment.yaml"
+    m0 = load_experiment_config(base, model="m0", ablation="none")
+    m1 = load_experiment_config(base, model="m1", ablation="none")
+    m2 = load_experiment_config(base, model="m2", ablation="none")
 
     assert int(m1["dataset"]["batch_size"]) == int(m0["dataset"]["batch_size"])
     assert int(m1["train"]["grad_accum_steps"]) == int(m0["train"]["grad_accum_steps"])
@@ -81,9 +81,9 @@ def test_cifar10_m0_m1_m2_alignment() -> None:
 
 def test_toy_m2_keeps_seen_images_protocol() -> None:
     root = _repo_root()
-    base = root / "configs/toy/dataset.yaml"
-    m0 = load_config_with_model(base, model="m0")
-    m2 = load_config_with_model(base, model="m2")
+    base = root / "configs/toy/experiment.yaml"
+    m0 = load_experiment_config(base, model="m0", ablation="none")
+    m2 = load_experiment_config(base, model="m2", ablation="none")
 
     assert _effective_batch(m0) == _effective_batch(m2)
     assert int(m0["train"]["total_steps"]) == int(m2["train"]["total_steps"])

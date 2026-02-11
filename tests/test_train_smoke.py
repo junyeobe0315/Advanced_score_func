@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from src.trainers import train
-from src.utils.config import load_config_with_model
+from src.utils.config import load_experiment_config
 from src.utils.seed import seed_everything
 
 
@@ -13,10 +13,10 @@ def test_train_smoke_for_all_models(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     run_root = tmp_path / "runs"
 
-    dataset_cfg = "toy/dataset.yaml"
+    dataset_cfg = "toy/experiment.yaml"
     model_keys = ["m0", "m1", "m2", "m3", "m4"]
     for model_key in model_keys:
-        cfg = load_config_with_model(str(repo_root / "configs" / dataset_cfg), model=model_key)
+        cfg = load_experiment_config(str(repo_root / "configs" / dataset_cfg), model=model_key, ablation="none")
         cfg["project"]["run_root"] = str(run_root)
         cfg["train"]["total_steps"] = 10
         cfg["train"]["ckpt_every_steps"] = 10

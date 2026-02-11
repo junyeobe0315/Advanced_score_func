@@ -3,24 +3,8 @@ from __future__ import annotations
 import torch
 from torch.utils.data import DataLoader
 
+from .common import collect_samples_from_loader, get_torchvision
 from .loader_opts import make_loader_kwargs
-
-
-def _get_torchvision():
-    """Import torchvision dataset and transform modules lazily.
-
-    Returns:
-        Tuple ``(datasets, transforms)`` from torchvision.
-
-    How it works:
-        Delays import until runtime so environments without torchvision fail
-        with a clear error only when MNIST is actually requested.
-    """
-    try:
-        from torchvision import datasets, transforms
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("torchvision is required for MNIST dataset") from exc
-    return datasets, transforms
 
 
 def make_mnist_loader(cfg: dict, train: bool = True) -> DataLoader:
@@ -37,7 +21,7 @@ def make_mnist_loader(cfg: dict, train: bool = True) -> DataLoader:
         Uses torchvision MNIST dataset, converts images to tensors, normalizes
         with mean/std 0.5, and applies batch/worker settings from config.
     """
-    datasets, transforms = _get_torchvision()
+    datasets, transforms = get_torchvision("MNIST")
 
     # Keep image range centered near zero for diffusion-style training.
     tfm = transforms.Compose(
@@ -72,10 +56,4 @@ def sample_mnist_data(cfg: dict, num_samples: int) -> torch.Tensor:
         Iterates over evaluation loader until enough images are accumulated.
     """
     loader = make_mnist_loader(cfg, train=False)
-    out = []
-    for images, _ in loader:
-        out.append(images)
-        if sum(x.shape[0] for x in out) >= num_samples:
-            break
-    cat = torch.cat(out, dim=0)
-    return cat[:num_samples]
+    return collect_samples_from_loader(loader, num_samples=num_samples)

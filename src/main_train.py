@@ -8,7 +8,7 @@ from src.utils.config import (
     apply_overrides,
     ensure_experiment_defaults,
     ensure_required_sections,
-    load_config_with_model,
+    load_experiment_config,
 )
 from src.utils.seed import seed_everything
 
@@ -21,8 +21,9 @@ def parse_args() -> argparse.Namespace:
     """
     p = argparse.ArgumentParser(description="Train score model variants")
     p.add_argument("--config", type=str, required=True)
-    p.add_argument("--model", type=str, default=None, help="Model preset key (m0..m4)")
-    p.add_argument("--models_config", type=str, default=None, help="Optional model-presets YAML path")
+    p.add_argument("--dataset", type=str, default=None, help="Optional dataset key for shared experiment.yaml")
+    p.add_argument("--model", type=str, required=True, help="Model preset key (m0..m4)")
+    p.add_argument("--ablation", type=str, default="none", help="Optional ablation patch name")
     p.add_argument("--seed", type=int, default=None)
     p.add_argument(
         "--override",
@@ -63,7 +64,7 @@ def main() -> None:
         None. Prints resolved run directory path to stdout.
     """
     args = parse_args()
-    cfg = load_config_with_model(args.config, model=args.model, models_path=args.models_config)
+    cfg = load_experiment_config(args.config, model=args.model, ablation=args.ablation, dataset=args.dataset)
     ensure_required_sections(cfg)
     cfg = ensure_experiment_defaults(cfg)
 
