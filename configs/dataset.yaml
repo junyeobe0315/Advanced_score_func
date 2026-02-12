@@ -121,7 +121,7 @@ datasets:
       image_size: 28
       channels: 1
     train:
-      total_steps: 120000
+      total_steps: 60000
       ema_decay: 0.999
       ckpt_every_steps: 1000
       selection_enable: true
